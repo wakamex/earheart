@@ -8,6 +8,7 @@
 #include "app.h"
 #include "catalog.h"
 #include "chunked.h"
+#include "commit.h"
 #include "defaults.h"
 #include "deliver.h"
 #include "desk.h"
@@ -45,8 +46,7 @@ typedef struct {
 static struct {
     eh_ui *ui;
     eh_jv *base;                     // the settings the draft was filled from; fields not shown here pass through
-    eh_jv *baseline_dictionary;      // the shared fields as this window last saw them saved
-    char baseline_mode[16];
+    eh_form_baseline baseline;       // the shared fields as this window last saw them saved
     int section;                     // the index entry lit
     bool spy_held;                   // a jump is gliding: the index keeps the entry chosen
     float section_y[SECTIONS], content_h, card_h[24], view_top, view_bottom;
@@ -122,12 +122,9 @@ static const eh_model *model_at(eh_model_kind kind, int index) {
     return index >= 0 && index < n ? list[index] : NULL;
 }
 
-// Paste without putting the clipboard back is what "paste and keep" means.
 static int output_mode_of(const eh_jv *cfg) {
-    const char *mode = eh_jv_string(eh_jv_path(cfg, "output.mode"), "paste");
-    if (!SDL_strcmp(mode, "clipboard")) return 2;
-    if (!SDL_strcmp(mode, "paste-copy")) return 1;
-    return eh_jv_boolean(eh_jv_path(cfg, "output.restoreClipboard"), true) ? 0 : 1;
+    const char *mode = eh_displayed_output_mode(cfg);
+    return !SDL_strcmp(mode, "clipboard") ? 2 : !SDL_strcmp(mode, "paste-copy") ? 1 : 0;
 }
 
 // A number as its shortest text that reads back as the same number.
@@ -203,9 +200,7 @@ static void populate(void) {
     W.history_enabled = eh_jv_boolean(eh_jv_path(c, "history.enabled"), true);
     number_text(W.max_seconds, sizeof W.max_seconds, eh_jv_path(c, "audio.maxRecordingSeconds"));
     number_text(W.idle_unload, sizeof W.idle_unload, eh_jv_path(c, "engines.idleUnloadMinutes"));
-    eh_jv_free(W.baseline_dictionary);
-    W.baseline_dictionary = eh_jv_clone(words ? words : eh_jv_array());
-    SDL_strlcpy(W.baseline_mode, W.output_mode == 2 ? "clipboard" : W.output_mode == 1 ? "paste-copy" : "paste", sizeof W.baseline_mode);
+    eh_form_baseline_take(&W.baseline, c);
 }
 
 // A number typed into a field, kept inside its limits; `fallback` when it is not a number.
@@ -283,45 +278,23 @@ static eh_jv *collect(void) {
 
 /* ---------------- what runs in the background ---------------- */
 
-// Save: the window's draft, with what the app itself owns and what was changed elsewhere since the
-// window read it taken from the live settings. Hotkeys that could not be registered keep their
-// saved value, and the draft keeps what was typed so it can be corrected.
+// Save. Hotkeys that could not be registered keep their saved value, and the draft keeps what was
+// typed so it can be corrected.
 static void save_task(void *arg) {
     eh_jv *next = arg;
-    const eh_jv *live = eh_settings();
-    static const char *const owned[] = { "overlay", "customModels" };
-    for (int i = 0; i < 2; i++) {
-        const eh_jv *v = eh_jv_get(live, owned[i]);
-        if (v) eh_jv_set(next, owned[i], eh_jv_clone(v));
-        else eh_jv_remove(next, owned[i]);
-    }
-    // The output mode set from the tray since the window opened wins over an untouched radio.
-    const char *live_mode = output_mode_of(live) == 2 ? "clipboard" : output_mode_of(live) == 1 ? "paste-copy" : "paste";
-    if (SDL_strcmp(live_mode, W.baseline_mode)) {
-        eh_jv_set_path(next, "output.mode", eh_jv_clone(eh_jv_path(live, "output.mode")));
-        eh_jv_set_path(next, "output.restoreClipboard", eh_jv_clone(eh_jv_path(live, "output.restoreClipboard")));
-    }
     eh_hotkey_results results;
     eh_jv *typed_keys = eh_jv_object();
     for (int i = 0; i < 4; i++) eh_jv_set(typed_keys, hotkey_paths[i], eh_jv_clone(eh_jv_get(next, hotkey_paths[i])));
-    eh_hotkeys_apply(next, &results);
-    // A hotkey that was refused keeps its saved value; one left empty is saved empty.
-    int failed = 0, failed_at = 0;
-    for (int i = 0; i < 4; i++) {
-        if (results.r[i].ok) continue;
-        failed++, failed_at = i;
-        if (!results.r[i].empty) eh_jv_set(next, hotkey_paths[i], eh_jv_clone(eh_jv_get(live, hotkey_paths[i])));
-    }
     char error[256];
-    bool ok = eh_settings_save(next, error, sizeof error);
-    if (!ok) {
-        eh_hotkey_results rollback;
-        eh_hotkeys_apply(eh_settings(), &rollback);
+    if (!eh_commit_settings(next, &W.baseline, &results, error, sizeof error)) {
         say(&W.save, ST_ERR, "Could not save: %s", error);
         eh_jv_free(typed_keys);
         W.saving = false;
         return;
     }
+    int failed = 0, failed_at = 0;
+    for (int i = 0; i < 4; i++)
+        if (!results.r[i].ok) failed++, failed_at = i;
     // What the limits made of the numbers typed.
     char adjusted[200] = "";
     double seconds = eh_setting_num("audio.maxRecordingSeconds"), idle = eh_setting_num("engines.idleUnloadMinutes");
