@@ -2,30 +2,37 @@
 #include "gs_http.h"
 #include "paths.h"
 
-typedef struct msg_node { eh_engine_msg msg; struct msg_node *next; } msg_node;
+typedef struct call {
+    unsigned id;
+    bool done;
+    Uint64 last_heard;  // when it was sent or last reported progress
+    eh_engine_progress *progress;
+    void *user;
+    eh_engine_reply *reply;
+    struct call *next;
+} call;
 
 struct eh_engine {
     char kind[16];
     SDL_Process *proc;
     SDL_IOStream *in, *out;
     SDL_Thread *reader;
-    SDL_Mutex *lock;
-    SDL_Semaphore *wake;      // posted once per request sent, and once to end the reader
+    SDL_Mutex *lock;        // the calls and the worker's state
+    SDL_Mutex *write_lock;  // one request on the pipe at a time
+    SDL_Condition *answered;
+    SDL_Semaphore *wake;    // posted once per request sent, and once to end the reader
     SDL_AtomicInt quit;
-    msg_node *head, *tail;    // messages read and not yet polled
-    unsigned *pending;        // ids sent and not yet answered
-    int pending_count, pending_cap;
-    unsigned next_id;
+    call *calls;            // sent and not yet answered
+    unsigned next_id, generation;
 };
 
 static void put_le32(Uint8 *p, Uint32 v) { p[0] = (Uint8)v; p[1] = (Uint8)(v >> 8); p[2] = (Uint8)(v >> 16); p[3] = (Uint8)(v >> 24); }
 static Uint32 get_le32(const Uint8 *p) { return p[0] | p[1] << 8 | p[2] << 16 | (Uint32)p[3] << 24; }
 
-static void enqueue(eh_engine *e, eh_engine_msg msg) {
-    msg_node *n = SDL_calloc(1, sizeof *n);
-    n->msg = msg;
-    if (e->tail) e->tail->next = n; else e->head = n;
-    e->tail = n;
+void eh_engine_reply_free(eh_engine_reply *r) {
+    gs_json_free(r->doc);
+    r->doc = NULL;
+    r->v = NULL;
 }
 
 // Reads exactly n bytes of the worker's output, which SDL hands over without waiting. False when
@@ -53,15 +60,16 @@ static bool write_all(eh_engine *e, const void *buf, size_t n) {
     return true;
 }
 
-static void fail_pending(eh_engine *e) {
-    for (int i = 0; i < e->pending_count; i++) {
-        char text[128];
-        int len = SDL_snprintf(text, sizeof text, "{\"id\":%u,\"ok\":false,\"error\":\"The %s engine stopped\"}", e->pending[i], e->kind);
-        eh_engine_msg m = { .id = e->pending[i], .final = true, .doc = gs_json_parse(text, (size_t)len) };
-        m.v = gs_json_root(m.doc);
-        enqueue(e, m);
+// With the lock held: every waiting call learns the worker is gone.
+static void fail_calls(eh_engine *e) {
+    for (call *c = e->calls; c; c = c->next) {
+        if (c->done) continue;
+        c->done = true;
+        c->reply->status = EH_ENGINE_EXITED;
+        SDL_snprintf(c->reply->error, sizeof c->reply->error, "The %s engine stopped", e->kind);
     }
-    e->pending_count = 0;
+    e->generation++;
+    SDL_BroadcastCondition(e->answered);
 }
 
 static int reader_main(void *user) {
@@ -76,30 +84,40 @@ static int reader_main(void *user) {
             bool ok = read_all(e, head, sizeof head);
             Uint32 json_len = ok ? get_le32(head) : 0, blob_len = ok ? get_le32(head + 4) : 0;
             ok = ok && json_len < (1u << 26) && blob_len == 0 && (json = SDL_malloc(json_len + 1)) && read_all(e, json, json_len);
-            eh_engine_msg m = { 0 };
-            if (ok) {
-                m.doc = gs_json_parse(json, json_len);
-                m.v = gs_json_root(m.doc);
-                ok = m.doc != NULL;
-            }
+            gs_json *doc = ok ? gs_json_parse(json, json_len) : NULL;
             SDL_free(json);
             SDL_LockMutex(e->lock);
-            if (!ok) {
-                fail_pending(e);
+            if (!doc) {
+                fail_calls(e);
                 SDL_UnlockMutex(e->lock);
                 return 0;
             }
-            m.id = (unsigned)gs_json_num(gs_json_get(m.v, "id"), 0);
-            gs_jv progress = gs_json_get(m.v, "progress");
-            m.final = !progress;
-            m.ok = gs_json_bool(gs_json_get(m.v, "ok"), false);
-            m.progress = (float)gs_json_num(progress, 0);
-            if (m.final) {
-                for (int i = 0; i < e->pending_count; i++)
-                    if (e->pending[i] == m.id) { e->pending[i] = e->pending[--e->pending_count]; break; }
+            gs_jv v = gs_json_root(doc);
+            unsigned id = (unsigned)gs_json_num(gs_json_get(v, "id"), 0);
+            gs_jv progress = gs_json_get(v, "progress");
+            call *c = e->calls;
+            while (c && (c->id != id || c->done)) c = c->next;
+            if (progress) {
+                // Proof the worker is alive: the caller's deadline starts again.
+                if (c && gs_json_kind(progress) == GS_JSON_NUMBER) {
+                    c->last_heard = SDL_GetTicks();
+                    if (c->progress) c->progress(c->user, (float)gs_json_num(progress, 0));
+                }
+                gs_json_free(doc);
+            } else {
                 answered = true;
+                if (c) {
+                    c->done = true;
+                    c->reply->doc = doc;
+                    c->reply->v = v;
+                    bool good = gs_json_bool(gs_json_get(v, "ok"), false);
+                    c->reply->status = good ? EH_ENGINE_OK : EH_ENGINE_FAILED;
+                    if (!good) SDL_strlcpy(c->reply->error, gs_json_str(gs_json_get(v, "error"), "engine error"), sizeof c->reply->error);
+                    SDL_BroadcastCondition(e->answered);
+                } else {
+                    gs_json_free(doc);  // an answer nobody waits for any more
+                }
             }
-            enqueue(e, m);
             SDL_UnlockMutex(e->lock);
         }
     }
@@ -109,17 +127,41 @@ eh_engine *eh_engine_new(const char *kind) {
     eh_engine *e = SDL_calloc(1, sizeof *e);
     SDL_strlcpy(e->kind, kind, sizeof e->kind);
     e->lock = SDL_CreateMutex();
+    e->write_lock = SDL_CreateMutex();
+    e->answered = SDL_CreateCondition();
     e->wake = SDL_CreateSemaphore(0);
     return e;
 }
 
-bool eh_engine_running(eh_engine *e) {
-    if (!e->proc) return false;
+static bool running(eh_engine *e) {
     int code;
-    return !SDL_WaitProcess(e->proc, false, &code);
+    return e->proc && !SDL_WaitProcess(e->proc, false, &code);
 }
 
-void eh_engine_stop(eh_engine *e) {
+bool eh_engine_running(eh_engine *e) {
+    SDL_LockMutex(e->write_lock);
+    bool r = running(e);
+    SDL_UnlockMutex(e->write_lock);
+    return r;
+}
+
+bool eh_engine_busy(eh_engine *e) {
+    SDL_LockMutex(e->lock);
+    bool busy = false;
+    for (call *c = e->calls; c && !busy; c = c->next) busy = !c->done;
+    SDL_UnlockMutex(e->lock);
+    return busy;
+}
+
+unsigned eh_engine_generation(eh_engine *e) {
+    SDL_LockMutex(e->lock);
+    unsigned g = e->generation;
+    SDL_UnlockMutex(e->lock);
+    return g;
+}
+
+// With the write lock held.
+static void stop(eh_engine *e) {
     if (!e->proc) return;
     SDL_SetAtomicInt(&e->quit, 1);
     SDL_KillProcess(e->proc, true);
@@ -131,23 +173,30 @@ void eh_engine_stop(eh_engine *e) {
     SDL_SetAtomicInt(&e->quit, 0);
     while (SDL_TryWaitSemaphore(e->wake)) {}
     SDL_LockMutex(e->lock);
-    fail_pending(e);
+    fail_calls(e);
     SDL_UnlockMutex(e->lock);
+}
+
+void eh_engine_stop(eh_engine *e) {
+    SDL_LockMutex(e->write_lock);
+    stop(e);
+    SDL_UnlockMutex(e->write_lock);
 }
 
 void eh_engine_free(eh_engine *e) {
     if (!e) return;
     eh_engine_stop(e);
-    for (msg_node *n = e->head, *next; n; n = next) { next = n->next; gs_json_free(n->msg.doc); SDL_free(n); }
     SDL_DestroyMutex(e->lock);
+    SDL_DestroyMutex(e->write_lock);
+    SDL_DestroyCondition(e->answered);
     SDL_DestroySemaphore(e->wake);
-    SDL_free(e->pending);
     SDL_free(e);
 }
 
+// With the write lock held.
 static bool start(eh_engine *e) {
-    if (eh_engine_running(e)) return true;
-    eh_engine_stop(e);  // a worker that died: collect it before starting another
+    if (running(e)) return true;
+    stop(e);  // a worker that died: collect it before starting another
     const char *args[] = { eh_exe_path(), "--engine", e->kind, NULL };
     SDL_PropertiesID p = SDL_CreateProperties();
     SDL_SetPointerProperty(p, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, (void *)args);
@@ -162,52 +211,48 @@ static bool start(eh_engine *e) {
     return true;
 }
 
-unsigned eh_engine_send(eh_engine *e, eh_jw *request, const void *blob, size_t blob_len) {
-    unsigned id = ++e->next_id;
-    eh_jw_num(request, "id", id);
+eh_engine_status eh_engine_call(eh_engine *e, eh_jw *request, const void *blob, size_t blob_len, int timeout_ms,
+                                eh_engine_progress *progress, void *user, eh_engine_reply *reply) {
+    *reply = (eh_engine_reply){ .status = EH_ENGINE_EXITED };
+    if (timeout_ms <= 0) timeout_ms = EH_ENGINE_TIMEOUT_MS;
+    call c = { .progress = progress, .user = user, .reply = reply };
+
+    // Started before the call is listed: collecting a dead worker answers everything listed.
+    SDL_LockMutex(e->write_lock);
+    bool ok = start(e);
+    SDL_LockMutex(e->lock);
+    c.id = ++e->next_id;
+    c.last_heard = SDL_GetTicks();
+    c.next = e->calls;
+    e->calls = &c;
+    SDL_UnlockMutex(e->lock);
+    eh_jw_num(request, "id", c.id);
     char *json = eh_jw_end(request);
     Uint8 head[8];
     put_le32(head, (Uint32)SDL_strlen(json));
     put_le32(head + 4, (Uint32)blob_len);
-    // Started before the request is listed: collecting a dead worker answers everything listed.
-    bool ok = start(e);
-    SDL_LockMutex(e->lock);
-    if (e->pending_count == e->pending_cap) e->pending = SDL_realloc(e->pending, sizeof(unsigned) * (size_t)(e->pending_cap = e->pending_cap * 2 + 8));
-    e->pending[e->pending_count++] = id;
-    SDL_UnlockMutex(e->lock);
     ok = ok && write_all(e, head, 8) && write_all(e, json, SDL_strlen(json)) && (!blob_len || write_all(e, blob, blob_len));
     SDL_free(json);
-    if (ok) {
-        SDL_SignalSemaphore(e->wake);
-    } else {
-        // The worker would not start or take the request: answer it here.
-        SDL_LockMutex(e->lock);
-        fail_pending(e);
-        SDL_UnlockMutex(e->lock);
-    }
-    return id;
-}
+    if (ok) SDL_SignalSemaphore(e->wake);
+    else stop(e);  // it would not start or take the request: everything waiting is answered
+    SDL_UnlockMutex(e->write_lock);
 
-bool eh_engine_poll(eh_engine *e, eh_engine_msg *msg) {
     SDL_LockMutex(e->lock);
-    msg_node *n = e->head;
-    if (n) {
-        e->head = n->next;
-        if (!e->head) e->tail = NULL;
-        *msg = n->msg;
-        SDL_free(n);
+    bool timed_out = false;
+    while (!c.done) {
+        Uint64 silent = SDL_GetTicks() - c.last_heard;
+        if (silent >= (Uint64)timeout_ms) { timed_out = true; break; }
+        SDL_WaitConditionTimeout(e->answered, e->lock, (Sint32)SDL_min((Uint64)timeout_ms - silent, 1000));
     }
+    for (call **at = &e->calls; *at; at = &(*at)->next)
+        if (*at == &c) { *at = c.next; break; }
     SDL_UnlockMutex(e->lock);
-    return n != NULL;
-}
-
-bool eh_engine_wait(eh_engine *e, unsigned id, eh_engine_msg *msg, void (*progress)(void *user, float f), void *user) {
-    for (;;) {
-        while (eh_engine_poll(e, msg)) {
-            if (msg->id == id && msg->final) return msg->ok;
-            if (msg->id == id && progress) progress(user, msg->progress);
-            gs_json_free(msg->doc);
-        }
-        SDL_Delay(2);
+    if (timed_out) {
+        // Silence this long is a native call that never returns, and every later request would
+        // queue behind it. The worker is retired: its other requests are answered EXITED.
+        eh_engine_stop(e);
+        reply->status = EH_ENGINE_TIMEOUT;
+        SDL_snprintf(reply->error, sizeof reply->error, "The %s engine did not answer in time", e->kind);
     }
+    return reply->status;
 }

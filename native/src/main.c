@@ -26,9 +26,9 @@ static int usage(void) {
     return 2;
 }
 
-static int fail(eh_engine_msg *m) {
-    fprintf(stderr, "earheart: %s\n", gs_json_str(gs_json_get(m->v, "error"), "the engine gave no reason"));
-    gs_json_free(m->doc);
+static int fail(eh_engine_reply *r) {
+    fprintf(stderr, "earheart: %s\n", r->error);
+    eh_engine_reply_free(r);
     return 1;
 }
 
@@ -62,7 +62,7 @@ static int cmd_transcribe(int argc, char **argv) {
     SDL_snprintf(dir, sizeof dir, "%s/stt/%s", models, m->id);
 
     eh_engine *e = eh_engine_new("stt");
-    eh_engine_msg msg;
+    eh_engine_reply msg;
     eh_jw w;
     eh_jw_begin(&w);
     eh_jw_str(&w, "type", "load-stt");
@@ -73,9 +73,9 @@ static int cmd_transcribe(int argc, char **argv) {
     eh_jw_str(&w, "joiner", m->sherpa.joiner);
     eh_jw_str(&w, "tokens", m->sherpa.tokens);
     eh_jw_str(&w, "modelType", m->sherpa.model_type);
-    if (!eh_engine_wait(e, eh_engine_send(e, &w, NULL, 0), &msg, NULL, NULL)) return fail(&msg);
+    if (eh_engine_call(e, &w, NULL, 0, 0, NULL, NULL, &msg)) return fail(&msg);
     int threads = (int)gs_json_num(gs_json_get(msg.v, "numThreads"), 0);
-    gs_json_free(msg.doc);
+    eh_engine_reply_free(&msg);
 
     int failed = 0;
     for (; i < argc; i++) {
@@ -84,7 +84,7 @@ static int cmd_transcribe(int argc, char **argv) {
         if (!wav) { fprintf(stderr, "earheart: %s: %s\n", argv[i], SDL_GetError()); failed = 1; continue; }
         eh_jw_begin(&w);
         eh_jw_str(&w, "type", "transcribe");
-        bool ok = eh_engine_wait(e, eh_engine_send(e, &w, wav, len), &msg, NULL, NULL);
+        bool ok = !eh_engine_call(e, &w, wav, len, 0, NULL, NULL, &msg);
         SDL_free(wav);
         if (!ok) { fprintf(stderr, "earheart: %s: ", argv[i]); failed = fail(&msg); continue; }
         const char *text = gs_json_str(gs_json_get(msg.v, "text"), "");
@@ -101,7 +101,7 @@ static int cmd_transcribe(int argc, char **argv) {
             puts(text);
         }
         fflush(stdout);
-        gs_json_free(msg.doc);
+        eh_engine_reply_free(&msg);
     }
     eh_engine_free(e);
     return failed;
@@ -136,17 +136,17 @@ static int clean_batch(const char *path, bool cpu) {
         for (size_t k = 0; k < SDL_arraysize(numbers); k++)
             if (gs_json_get(v, numbers[k])) eh_jw_num(&w, numbers[k], gs_json_num(gs_json_get(v, numbers[k]), 0));
         eh_jw_bool(&w, "fresh", gs_json_bool(gs_json_get(v, "fresh"), false));
-        eh_engine_msg msg;
+        eh_engine_reply msg;
         Uint64 t0 = SDL_GetTicks();
-        bool ok = eh_engine_wait(e, eh_engine_send(e, &w, NULL, 0), &msg, NULL, NULL);
+        bool ok = !eh_engine_call(e, &w, NULL, 0, 0, NULL, NULL, &msg);
         eh_jw_begin(&w);
-        eh_jw_str(&w, ok ? "text" : "error", gs_json_str(gs_json_get(msg.v, ok ? "text" : "error"), ""));
+        eh_jw_str(&w, ok ? "text" : "error", ok ? gs_json_str(gs_json_get(msg.v, "text"), "") : msg.error);
         eh_jw_num(&w, "ms", (double)(SDL_GetTicks() - t0));
         char *out = eh_jw_end(&w);
         puts(out);
         fflush(stdout);
         SDL_free(out);
-        gs_json_free(msg.doc);
+        eh_engine_reply_free(&msg);
         gs_json_free(doc);
     }
     eh_engine_free(e);
@@ -189,7 +189,7 @@ static int cmd_clean(int argc, char **argv) {
     }
 
     eh_engine *e = eh_engine_new("cleanup");
-    eh_engine_msg msg;
+    eh_engine_reply msg;
     eh_jw w;
     eh_jw_begin(&w);
     eh_jw_str(&w, "type", "clean");
@@ -199,10 +199,10 @@ static int cmd_clean(int argc, char **argv) {
     eh_jw_str(&w, "transcript", text);
     if (temperature >= 0) eh_jw_num(&w, "temperature", temperature);
     Uint64 t0 = SDL_GetTicks();
-    if (!eh_engine_wait(e, eh_engine_send(e, &w, NULL, 0), &msg, NULL, NULL)) return fail(&msg);
+    if (eh_engine_call(e, &w, NULL, 0, 0, NULL, NULL, &msg)) return fail(&msg);
     puts(gs_json_str(gs_json_get(msg.v, "text"), ""));
     fprintf(stderr, "%d ms\n", (int)(SDL_GetTicks() - t0));
-    gs_json_free(msg.doc);
+    eh_engine_reply_free(&msg);
     eh_engine_free(e);
     return 0;
 }

@@ -89,42 +89,64 @@ static void test_turn(void) {
     SDL_free(prefix);
 }
 
-static unsigned ping(eh_engine *e) {
+static eh_engine_status request(eh_engine *e, const char *type, eh_engine_reply *r) {
+    eh_jw w;
+    eh_jw_begin(&w);
+    eh_jw_str(&w, "type", type);
+    return eh_engine_call(e, &w, NULL, 0, 0, NULL, NULL, r);
+}
+
+static int slow_ping(void *user) {
+    eh_engine_reply r;
     eh_jw w;
     eh_jw_begin(&w);
     eh_jw_str(&w, "type", "ping");
-    return eh_engine_send(e, &w, NULL, 0);
+    eh_jw_num(&w, "delayMs", 400);
+    eh_engine_status s = eh_engine_call(user, &w, NULL, 0, 0, NULL, NULL, &r);
+    eh_engine_reply_free(&r);
+    return (int)s;
 }
 
 static void test_engine(const char *kind) {
     eh_engine *e = eh_engine_new(kind);
-    eh_engine_msg m;
-    CHECK(!eh_engine_running(e));
-    CHECK(eh_engine_wait(e, ping(e), &m, NULL, NULL) && gs_json_bool(gs_json_get(m.v, "pong"), false));
-    gs_json_free(m.doc);
+    eh_engine_reply r;
+    CHECK(!eh_engine_running(e) && !eh_engine_busy(e));
+    CHECK(request(e, "ping", &r) == EH_ENGINE_OK && gs_json_bool(gs_json_get(r.v, "pong"), false));
+    eh_engine_reply_free(&r);
     CHECK(eh_engine_running(e));
 
     // An unknown request is answered with an error and the worker lives on.
-    eh_jw w;
-    eh_jw_begin(&w);
-    eh_jw_str(&w, "type", "no-such-request");
-    CHECK(!eh_engine_wait(e, eh_engine_send(e, &w, NULL, 0), &m, NULL, NULL) && !strcmp(gs_json_str(gs_json_get(m.v, "error"), ""), "Unknown request"));
-    gs_json_free(m.doc);
+    CHECK(request(e, "no-such-request", &r) == EH_ENGINE_FAILED && !strcmp(r.error, "Unknown request"));
+    eh_engine_reply_free(&r);
+    CHECK(eh_engine_running(e));
 
     // A worker that dies answers what was waiting, and the next request starts another.
-    eh_jw_begin(&w);
-    eh_jw_str(&w, "type", "exit");
-    unsigned dying = eh_engine_send(e, &w, NULL, 0);
-    CHECK(!eh_engine_wait(e, dying, &m, NULL, NULL) && strstr(gs_json_str(gs_json_get(m.v, "error"), ""), "engine stopped"));
-    gs_json_free(m.doc);
-    CHECK(eh_engine_wait(e, ping(e), &m, NULL, NULL));
-    gs_json_free(m.doc);
+    unsigned before = eh_engine_generation(e);
+    CHECK(request(e, "exit", &r) == EH_ENGINE_EXITED && strstr(r.error, "engine stopped"));
+    CHECK(eh_engine_generation(e) != before);
+    CHECK(request(e, "ping", &r) == EH_ENGINE_OK);
+    eh_engine_reply_free(&r);
 
     // A request without what it needs is refused before any library is opened.
+    CHECK(request(e, !strcmp(kind, "stt") ? "load-stt" : "clean", &r) == EH_ENGINE_FAILED);
+    eh_engine_reply_free(&r);
+
+    // No answer within the deadline: the caller gets a timeout and the worker is retired, which
+    // answers a second caller waiting on it as exited.
+    SDL_Thread *other = SDL_CreateThread(slow_ping, "second caller", e);
+    SDL_Delay(50);
+    eh_jw w;
     eh_jw_begin(&w);
-    eh_jw_str(&w, "type", !strcmp(kind, "stt") ? "load-stt" : "clean");
-    CHECK(!eh_engine_wait(e, eh_engine_send(e, &w, NULL, 0), &m, NULL, NULL));
-    gs_json_free(m.doc);
+    eh_jw_str(&w, "type", "ping");
+    eh_jw_num(&w, "delayMs", 5000);
+    Uint64 t0 = SDL_GetTicks();
+    CHECK(eh_engine_call(e, &w, NULL, 0, 200, NULL, NULL, &r) == EH_ENGINE_TIMEOUT);
+    CHECK(SDL_GetTicks() - t0 < 2000);
+    int status;
+    SDL_WaitThread(other, &status);
+    CHECK(status == EH_ENGINE_EXITED || status == EH_ENGINE_OK);
+    CHECK(request(e, "ping", &r) == EH_ENGINE_OK);
+    eh_engine_reply_free(&r);
     eh_engine_free(e);
 }
 

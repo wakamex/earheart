@@ -95,6 +95,7 @@ static void serve_exit(request *r) {
 static void stt_serve(request *r) {
     serve_exit(r);
     if (is(r, "ping")) {
+        SDL_Delay((Uint32)gs_json_num(gs_json_get(r->v, "delayMs"), 0));  // a slow request, for tests
         eh_jw w = ok_reply(r->id);
         eh_jw_bool(&w, "pong", true);
         send_json(&w);
@@ -215,6 +216,7 @@ static bool load_for(request *r) {
 static void cleanup_serve(request *r) {
     serve_exit(r);
     if (is(r, "ping")) {
+        SDL_Delay((Uint32)gs_json_num(gs_json_get(r->v, "delayMs"), 0));
         eh_jw w = ok_reply(r->id);
         eh_jw_bool(&w, "pong", true);
         send_json(&w);
