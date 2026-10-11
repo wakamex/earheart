@@ -45,6 +45,10 @@ pub fn build(b: *std.Build) void {
     target_mod.addCSourceFiles(.{ .root = b.path("tests"), .files = &.{"paste_target.c"}, .flags = flags });
     target_mod.linkLibrary(gesso);
     b.installArtifact(b.addExecutable(.{ .name = "paste-target", .root_module = target_mod }));
+    const probe_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    probe_mod.addCSourceFiles(.{ .root = b.path("tests"), .files = &.{"clipboard_probe.c"}, .flags = flags });
+    probe_mod.linkLibrary(gesso);
+    b.installArtifact(b.addExecutable(.{ .name = "clipboard-probe", .root_module = probe_mod }));
 
     const tests = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     tests.addCSourceFiles(.{ .root = b.path("src"), .files = sources, .flags = flags });
