@@ -165,3 +165,73 @@ bool eh_instance_acquire(const char *data_dir, void (*args)(int argc, char **arg
     SDL_DetachThread(SDL_CreateThread(listener, "instance", pipe));
     return true;
 }
+
+/* ---------------- the clipboard's contents ---------------- */
+
+struct eh_clip { UINT *formats; void **data; SIZE_T *sizes; int count; };
+
+void eh_clipboard_free(eh_clip *s) {
+    if (!s) return;
+    for (int i = 0; i < s->count; i++) SDL_free(s->data[i]);
+    SDL_free(s->formats);
+    SDL_free(s->data);
+    SDL_free(s->sizes);
+    SDL_free(s);
+}
+
+// Formats whose handle is a block of memory. The others are objects of the drawing system (a
+// bitmap, a palette, a metafile) that Windows makes again from the memory formats beside them.
+static bool is_memory(UINT format) {
+    return format != CF_BITMAP && format != CF_METAFILEPICT && format != CF_PALETTE && format != CF_ENHMETAFILE && format != CF_OWNERDISPLAY &&
+           !(format >= CF_DSPTEXT && format <= CF_DSPENHMETAFILE) && !(format >= CF_GDIOBJFIRST && format <= CF_GDIOBJLAST);
+}
+
+static bool open_clipboard(void) {
+    for (int i = 0; i < 10; i++) {  // another program may hold it for a moment
+        if (OpenClipboard(NULL)) return true;
+        Sleep(10);
+    }
+    return false;
+}
+
+eh_clip *eh_clipboard_snapshot(void) {
+    if (!open_clipboard()) return NULL;
+    eh_clip *s = SDL_calloc(1, sizeof *s);
+    int n = CountClipboardFormats();
+    s->formats = SDL_calloc((size_t)n + 1, sizeof *s->formats);
+    s->data = SDL_calloc((size_t)n + 1, sizeof *s->data);
+    s->sizes = SDL_calloc((size_t)n + 1, sizeof *s->sizes);
+    for (UINT f = EnumClipboardFormats(0); f && s->count < n; f = EnumClipboardFormats(f)) {
+        if (!is_memory(f)) continue;
+        HANDLE h = GetClipboardData(f);
+        SIZE_T size = h ? GlobalSize(h) : 0;
+        void *p = size ? GlobalLock(h) : NULL;
+        if (!p) continue;
+        s->data[s->count] = SDL_malloc(size);
+        SDL_memcpy(s->data[s->count], p, size);
+        GlobalUnlock(h);
+        s->formats[s->count] = f;
+        s->sizes[s->count++] = size;
+    }
+    CloseClipboard();
+    if (!s->count) { eh_clipboard_free(s); return NULL; }
+    return s;
+}
+
+bool eh_clipboard_restore(eh_clip *s) {
+    bool ok = open_clipboard();
+    if (ok) {
+        EmptyClipboard();
+        for (int i = 0; i < s->count; i++) {
+            HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, s->sizes[i]);
+            void *p = h ? GlobalLock(h) : NULL;
+            if (!p) continue;
+            SDL_memcpy(p, s->data[i], s->sizes[i]);
+            GlobalUnlock(h);
+            if (!SetClipboardData(s->formats[i], h)) GlobalFree(h);  // the clipboard owns what it accepts
+        }
+        CloseClipboard();
+    }
+    eh_clipboard_free(s);
+    return ok;
+}

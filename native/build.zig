@@ -22,7 +22,8 @@ pub fn build(b: *std.Build) void {
         .windows => mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{"desk_windows.c"}, .flags = flags }),
         .macos => {
             mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{ "desk_macos.c", "desk_unix.c" }, .flags = flags });
-            for ([_][]const u8{ "Carbon", "ApplicationServices" }) |f| mod.linkFramework(f, .{});
+            mod.addCSourceFile(.{ .file = b.path("src/desk_macos_clipboard.m"), .flags = &.{ "-fobjc-arc", "-Wall", "-Wextra", "-Wno-unused-parameter" } });
+            for ([_][]const u8{ "Carbon", "ApplicationServices", "AppKit" }) |f| mod.linkFramework(f, .{});
         },
         else => mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{ "desk_linux.c", "desk_unix.c" }, .flags = flags }),
     }

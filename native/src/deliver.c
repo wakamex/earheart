@@ -10,67 +10,21 @@
 
 #define RESTORE_WINDOW_MS 1000  // how long after the keystroke the old clipboard is put back
 
-// Everything the clipboard held, in every format it offered: a screenshot, a file copy or rich
-// text read as "" when asked for text, and writing that back would destroy them.
-typedef struct {
-    char **types;
-    void **data;
-    size_t *sizes;
-    int count;
-} snapshot;
-
 static struct {
     unsigned timer;
-    snapshot *snap;  // the contents a pending restore will put back
-    char *text;      // and the transcript that replaced them
+    eh_clip *snap;  // the contents a pending restore will put back
+    char *text;     // and the transcript that replaced them
 } D;
-
-static void free_snapshot(snapshot *s) {
-    if (!s) return;
-    for (int i = 0; i < s->count; i++) { SDL_free(s->types[i]); SDL_free(s->data[i]); }
-    SDL_free(s->types);
-    SDL_free(s->data);
-    SDL_free(s->sizes);
-    SDL_free(s);
-}
 
 /* ---------------- on the main thread ---------------- */
 
-typedef struct { const char *text; snapshot *snap; bool take, restore, ok; char *read; } clipboard_job;
-
-static const void *offer(void *user, const char *mime, size_t *size) {
-    snapshot *s = user;
-    for (int i = 0; i < s->count; i++)
-        if (!SDL_strcmp(s->types[i], mime)) { *size = s->sizes[i]; return s->data[i]; }
-    *size = 0;
-    return NULL;
-}
-
-static void offer_done(void *user) { free_snapshot(user); }
+typedef struct { const char *text; eh_clip *snap; bool take, restore, ok; } clipboard_job;
 
 static void clipboard_main(void *user) {
     clipboard_job *j = user;
-    if (j->take) {
-        // NULL when there is nothing to capture, so the caller skips the restore and never
-        // overwrites the user's contents with nothing.
-        size_t n = 0;
-        char **types = SDL_GetClipboardMimeTypes(&n);
-        snapshot *s = SDL_calloc(1, sizeof *s);
-        s->types = SDL_calloc(n + 1, sizeof *s->types);
-        s->data = SDL_calloc(n + 1, sizeof *s->data);
-        s->sizes = SDL_calloc(n + 1, sizeof *s->sizes);
-        for (size_t i = 0; types && i < n; i++) {
-            size_t size = 0;
-            void *data = SDL_GetClipboardData(types[i], &size);
-            if (!data || !size) { SDL_free(data); continue; }
-            s->types[s->count] = SDL_strdup(types[i]);
-            s->data[s->count] = data;
-            s->sizes[s->count++] = size;
-        }
-        SDL_free(types);
-        if (!s->count) { free_snapshot(s); s = NULL; }
-        j->snap = s;
-    }
+    // NULL when there is nothing to capture, so the caller skips the restore and never overwrites
+    // the user's contents with nothing.
+    if (j->take) j->snap = eh_clipboard_snapshot();
     if (j->restore) {
         // Only when the clipboard still holds the transcript: if the user copied something else
         // meanwhile, that is theirs.
@@ -78,9 +32,9 @@ static void clipboard_main(void *user) {
         bool unchanged = now && !SDL_strcmp(now, j->text);
         SDL_free(now);
         if (unchanged) {
-            snapshot *s = j->snap;
+            eh_clip *s = j->snap;
             j->snap = NULL;
-            if (!SDL_SetClipboardData(offer, offer_done, s, (const char **)s->types, (size_t)s->count)) SDL_Log("clipboard restore failed: %s", SDL_GetError());
+            if (!eh_clipboard_restore(s)) SDL_Log("clipboard restore failed: %s", SDL_GetError());
         }
         return;
     }
@@ -89,15 +43,15 @@ static void clipboard_main(void *user) {
 
 static void on_main(clipboard_job *j) { EH_AWAIT(SDL_RunOnMainThread(clipboard_main, j, true)); }
 
-static void restore_if_unchanged(snapshot *snap, const char *text) {
+static void restore_if_unchanged(eh_clip *snap, const char *text) {
     clipboard_job j = { .text = text, .snap = snap, .restore = true };
     on_main(&j);
-    free_snapshot(j.snap);  // not restored: the copy is dropped
+    eh_clipboard_free(j.snap);  // not restored: the copy is dropped
 }
 
 static void restore_task(void *user) {
     D.timer = 0;
-    snapshot *snap = D.snap;
+    eh_clip *snap = D.snap;
     char *text = D.text;
     D.snap = NULL;
     D.text = NULL;
@@ -118,10 +72,10 @@ bool eh_deliver(const char *text, const eh_jv *output, eh_signal *signal, eh_del
     bool paste_only = !SDL_strcmp(mode, "paste"), pasting = paste_only || !SDL_strcmp(mode, "paste-copy");
     clipboard_job j = { .text = text, .take = paste_only && eh_jv_boolean(eh_jv_get(output, "restoreClipboard"), true) };
     on_main(&j);
-    snapshot *previous = j.snap;
+    eh_clip *previous = j.snap;
     if (!j.ok) {
         SDL_snprintf(error, error_size, "The clipboard could not be written: %s", SDL_GetError());
-        free_snapshot(previous);
+        eh_clipboard_free(previous);
         return false;
     }
     SDL_strlcpy(result->method, "clipboard", sizeof result->method);
@@ -139,7 +93,7 @@ bool eh_deliver(const char *text, const eh_jv *output, eh_signal *signal, eh_del
     EH_AWAIT(sent = eh_paste_keystroke(detail, sizeof detail));
     if (sent != EH_PASTE_SENT) {
         // The text stays on the clipboard, so the snapshot is not put back over it.
-        free_snapshot(previous);
+        eh_clipboard_free(previous);
         if (eh_signal_aborted(signal)) { SDL_strlcpy(result->method, "cancelled", sizeof result->method); return true; }
         const char *note, *hint;
         if (sent == EH_PASTE_NOT_PERMITTED) {
@@ -166,7 +120,7 @@ bool eh_deliver(const char *text, const eh_jv *output, eh_signal *signal, eh_del
         return true;
     }
     if (eh_signal_aborted(signal)) {
-        free_snapshot(previous);
+        eh_clipboard_free(previous);
         SDL_strlcpy(result->method, "cancelled", sizeof result->method);
         return true;
     }

@@ -47,6 +47,16 @@ bool eh_paste_permitted(void);  // false only on macOS without Accessibility
 // Settings so the user has something to switch on. Does nothing elsewhere.
 void eh_paste_ask_permission(void);
 
+/* ---------------- the clipboard's contents ---------------- */
+
+// Everything the clipboard holds, in every format: text alone would lose a screenshot, a file copy
+// or rich text. SDL lists the formats of what it put there itself and, on macOS, of nothing else,
+// so each system has its own way here. Call these on the main thread.
+typedef struct eh_clip eh_clip;
+eh_clip *eh_clipboard_snapshot(void);     // NULL when there is nothing to capture
+bool eh_clipboard_restore(eh_clip *snap); // puts it back and frees it
+void eh_clipboard_free(eh_clip *snap);
+
 /* ---------------- one instance ---------------- */
 
 // Becomes the running instance. Arguments a later instance forwards arrive at `on_args`, on

@@ -208,3 +208,53 @@ eh_paste_result eh_paste_keystroke(char *detail, size_t detail_size) {
     if (!any) SDL_strlcpy(detail, "No keystroke tool found (install wtype, ydotool or xdotool)", detail_size);
     return any ? EH_PASTE_FAILED : EH_PASTE_NO_TOOL;
 }
+
+/* ---------------- the clipboard's contents ---------------- */
+
+struct eh_clip { char **types; void **data; size_t *sizes; int count; };
+
+void eh_clipboard_free(eh_clip *s) {
+    if (!s) return;
+    for (int i = 0; i < s->count; i++) { SDL_free(s->types[i]); SDL_free(s->data[i]); }
+    SDL_free(s->types);
+    SDL_free(s->data);
+    SDL_free(s->sizes);
+    SDL_free(s);
+}
+
+eh_clip *eh_clipboard_snapshot(void) {
+    size_t n = 0;
+    char **types = SDL_GetClipboardMimeTypes(&n);
+    eh_clip *s = SDL_calloc(1, sizeof *s);
+    s->types = SDL_calloc(n + 1, sizeof *s->types);
+    s->data = SDL_calloc(n + 1, sizeof *s->data);
+    s->sizes = SDL_calloc(n + 1, sizeof *s->sizes);
+    for (size_t i = 0; types && i < n; i++) {
+        size_t size = 0;
+        void *data = SDL_GetClipboardData(types[i], &size);
+        if (!data || !size) { SDL_free(data); continue; }
+        s->types[s->count] = SDL_strdup(types[i]);
+        s->data[s->count] = data;
+        s->sizes[s->count++] = size;
+    }
+    SDL_free(types);
+    if (!s->count) { eh_clipboard_free(s); return NULL; }
+    return s;
+}
+
+static const void *offer(void *user, const char *mime, size_t *size) {
+    eh_clip *s = user;
+    for (int i = 0; i < s->count; i++)
+        if (!SDL_strcmp(s->types[i], mime)) { *size = s->sizes[i]; return s->data[i]; }
+    *size = 0;
+    return NULL;
+}
+
+static void offer_done(void *user) { eh_clipboard_free(user); }
+
+// The data is handed over when another program asks for it, so the snapshot lives on with SDL.
+bool eh_clipboard_restore(eh_clip *s) {
+    if (SDL_SetClipboardData(offer, offer_done, s, (const char **)s->types, (size_t)s->count)) return true;
+    eh_clipboard_free(s);
+    return false;
+}
