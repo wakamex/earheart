@@ -181,6 +181,7 @@ static bool command_exists(const char *cmd) {
 }
 
 bool eh_paste_permitted(void) { return true; }
+void eh_paste_ask_permission(void) {}
 
 eh_paste_result eh_paste_keystroke(char *detail, size_t detail_size) {
     static const char *const wtype[] = { "wtype", "-M", "ctrl", "-k", "v", "-m", "ctrl", NULL };

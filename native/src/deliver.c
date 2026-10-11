@@ -143,6 +143,9 @@ bool eh_deliver(const char *text, const eh_jv *output, eh_signal *signal, eh_del
         if (eh_signal_aborted(signal)) { SDL_strlcpy(result->method, "cancelled", sizeof result->method); return true; }
         const char *note, *hint;
         if (sent == EH_PASTE_NOT_PERMITTED) {
+            // Asked once a run: the system's prompt leads to the switch in System Settings.
+            static bool asked;
+            if (!asked) { asked = true; eh_paste_ask_permission(); }
             note = "Accessibility permission is off";
             hint = "Accessibility is off for Earheart (an update can reset it) — Settings ▸ General ▸ Fix auto-paste permission";
         } else if (sent == EH_PASTE_NO_TOOL) {

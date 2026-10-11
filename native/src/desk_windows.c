@@ -93,6 +93,7 @@ void eh_hotkey_unregister(int id) {
 /* ---------------- paste ---------------- */
 
 bool eh_paste_permitted(void) { return true; }
+void eh_paste_ask_permission(void) {}
 
 eh_paste_result eh_paste_keystroke(char *detail, size_t detail_size) {
     INPUT in[4] = { 0 };

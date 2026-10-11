@@ -91,6 +91,13 @@ void eh_hotkey_unregister(int id) {
 
 bool eh_paste_permitted(void) { return AXIsProcessTrusted(); }
 
+void eh_paste_ask_permission(void) {
+    const void *keys[] = { kAXTrustedCheckOptionPrompt }, *values[] = { kCFBooleanTrue };
+    CFDictionaryRef options = CFDictionaryCreate(NULL, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    AXIsProcessTrustedWithOptions(options);
+    CFRelease(options);
+}
+
 eh_paste_result eh_paste_keystroke(char *detail, size_t detail_size) {
     // Without Accessibility the events are dropped without a word, so it is asked first.
     if (!AXIsProcessTrusted()) return EH_PASTE_NOT_PERMITTED;

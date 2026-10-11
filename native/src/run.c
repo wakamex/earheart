@@ -255,6 +255,8 @@ int eh_run(int argc, char **argv) {
     R.log_lock = SDL_CreateMutex();
     SDL_SetLogOutputFunction(log_line, NULL);
     SDL_SetAppMetadata("Earheart", EARHEART_VERSION, "dev.wakamex.earheart");
+    // A tray app: no Dock icon and no menu bar of its own on macOS.
+    SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) { SDL_Log("could not start: %s", SDL_GetError()); return 1; }
     R.refresh_event = SDL_RegisterEvents(1);
 

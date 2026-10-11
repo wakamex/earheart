@@ -43,6 +43,9 @@ typedef enum {
 // without the loop's lock. `detail` gets what a failing tool reported, for the log.
 eh_paste_result eh_paste_keystroke(char *detail, size_t detail_size);
 bool eh_paste_permitted(void);  // false only on macOS without Accessibility
+// macOS: has the system ask the user for Accessibility, which also lists the app in System
+// Settings so the user has something to switch on. Does nothing elsewhere.
+void eh_paste_ask_permission(void);
 
 /* ---------------- one instance ---------------- */
 
