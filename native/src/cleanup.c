@@ -48,7 +48,7 @@ static struct {
     const struct llama_vocab *vocab;
     char *model_path;
     int context_size;
-    enum { WRAP_TEMPLATE, WRAP_GEMMA, WRAP_CHATML, WRAP_QWEN } wrap;
+    enum { WRAP_TEMPLATE, WRAP_GEMMA, WRAP_CHATML, WRAP_QWEN, WRAP_GRANITE } wrap;
     llama_token *held;  // the tokens now evaluated in the context, in order
     int held_count, held_cap;
     char device[64];
@@ -143,6 +143,7 @@ static void pick_wrapper(void) {
     L.meta_str(L.model, "general.basename", base, sizeof base);
     if (tmpl && SDL_strstr(tmpl, "<start_of_turn>")) L.wrap = WRAP_GEMMA;
     else if (tmpl && SDL_strstr(tmpl, "<|im_start|>")) L.wrap = contains_nocase(name, "qwen") || contains_nocase(base, "qwen") ? WRAP_QWEN : WRAP_CHATML;
+    else if (tmpl && SDL_strstr(tmpl, "<|start_of_role|>")) L.wrap = WRAP_GRANITE;
     else L.wrap = WRAP_TEMPLATE;
 }
 
@@ -230,6 +231,11 @@ static tokens build_prompt(const char *turn, bool open) {
     case WRAP_CHATML: head = "<|im_start|>user\n"; tail = "<|im_end|>\n<|im_start|>assistant\n"; break;
     // An empty thought, so a model that can reason spends its tokens on the transcript.
     case WRAP_QWEN: head = "<|im_start|>user\n"; tail = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"; break;
+    // Granite's template supplies this system message when the chat has none.
+    case WRAP_GRANITE:
+        head = "<|start_of_role|>system<|end_of_role|>You are a helpful assistant. Please ensure responses are professional, accurate, and safe.<|end_of_text|>\n<|start_of_role|>user<|end_of_role|>";
+        tail = "<|end_of_text|>\n<|start_of_role|>assistant<|end_of_role|>";
+        break;
     default: break;
     }
     if (head) {
@@ -344,7 +350,7 @@ char *eh_cleanup_clean(const char *system_prompt, const char *transcript, const 
     size_t total = SDL_max((size_t)1, SDL_strlen(transcript)), len = 0, cap = total + 256;
     char *out = SDL_malloc(cap);
     struct llama_sampler *smpl = make_sampler(sampling);
-    const char *stops[] = { "<|im_end|>", "<end_of_turn>" };
+    const char *stops[] = { "<|im_end|>", "<end_of_turn>", "<|end_of_text|>" };
     bool done = false, failed = false;
     for (int i = 0; !done && !failed; i++) {
         if (cancel && SDL_GetAtomicInt(cancel)) { SDL_strlcpy(L.error, "cleanup cancelled", sizeof L.error); failed = true; break; }

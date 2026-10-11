@@ -169,11 +169,13 @@ unsigned eh_engine_send(eh_engine *e, eh_jw *request, const void *blob, size_t b
     Uint8 head[8];
     put_le32(head, (Uint32)SDL_strlen(json));
     put_le32(head + 4, (Uint32)blob_len);
+    // Started before the request is listed: collecting a dead worker answers everything listed.
+    bool ok = start(e);
     SDL_LockMutex(e->lock);
     if (e->pending_count == e->pending_cap) e->pending = SDL_realloc(e->pending, sizeof(unsigned) * (size_t)(e->pending_cap = e->pending_cap * 2 + 8));
     e->pending[e->pending_count++] = id;
     SDL_UnlockMutex(e->lock);
-    bool ok = start(e) && write_all(e, head, 8) && write_all(e, json, SDL_strlen(json)) && (!blob_len || write_all(e, blob, blob_len));
+    ok = ok && write_all(e, head, 8) && write_all(e, json, SDL_strlen(json)) && (!blob_len || write_all(e, blob, blob_len));
     SDL_free(json);
     if (ok) {
         SDL_SignalSemaphore(e->wake);

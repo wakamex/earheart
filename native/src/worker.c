@@ -3,6 +3,7 @@
 // a thread of its own, so that "cancel-clean" reaches a generation in progress and the requests
 // queued behind it.
 #include <stdio.h>
+#include <stdlib.h>
 #include "catalog.h"
 #include "cleanup.h"
 #include "engine.h"
@@ -86,7 +87,13 @@ static bool is(request *r, const char *type) { return !SDL_strcmp(gs_json_str(gs
 
 static char *stt_model;  // the id of the model loaded
 
+// "exit" ends the worker at once, as a crash in an engine's native code would: for tests.
+static void serve_exit(request *r) {
+    if (is(r, "exit")) _Exit(3);  // not exit(), which waits for the lock a thread reading standard input holds
+}
+
 static void stt_serve(request *r) {
+    serve_exit(r);
     if (is(r, "ping")) {
         eh_jw w = ok_reply(r->id);
         eh_jw_bool(&w, "pong", true);
@@ -206,6 +213,7 @@ static bool load_for(request *r) {
 }
 
 static void cleanup_serve(request *r) {
+    serve_exit(r);
     if (is(r, "ping")) {
         eh_jw w = ok_reply(r->id);
         eh_jw_bool(&w, "pong", true);
