@@ -45,7 +45,7 @@ app=$!
 for i in $(seq 100); do grep -q "started" "$log" 2>/dev/null && break; sleep 0.1; done
 grep -q "started" "$log" || fail "the app did not start"
 sleep 1
-grep -q "could not register" "$log" && fail "a hotkey was refused"
+grep -qi "could not register" "$log" && fail "a hotkey was refused"
 
 run() {  # $1: how the dictation is started and stopped; $2: what to call it
     if [ -n "${EARHEART_E2E_NO_PASTE:-}" ]; then

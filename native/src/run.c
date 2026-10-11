@@ -15,15 +15,16 @@
 #include "desk.h"
 #include "engine.h"
 #include "history.h"
+#include "hotkeys.h"
 #include "icons.h"
 #include "loop.h"
 #include "overlay.h"
 #include "paths.h"
 #include "recorder.h"
 #include "settings.h"
+#include "settings_window.h"
 #include "stb_image.h"
 
-enum { HOTKEY_RECORD = 1, HOTKEY_PAUSE, HOTKEY_DISCARD, HOTKEY_CORRECT };
 
 static struct {
     SDL_Tray *tray;
@@ -31,7 +32,8 @@ static struct {
     SDL_Surface *icon, *icon_recording;
     Uint32 refresh_event;
     bool hotkeys;           // the desktop lets keys be grabbed
-    bool discard_held;      // the discard hotkey is registered, which it is only while a dictation is live
+    // The keys grabbed: which accelerator each of the desktop's hotkey numbers stands for.
+    struct { char accelerator[64]; int name; } grabbed[8];
     FILE *log;
     SDL_Mutex *log_lock;
     // What another instance asked for before this one had finished starting, done once it has.
@@ -57,9 +59,10 @@ static void log_line(void *user, int category, SDL_LogPriority priority, const c
 
 /* ---------------- actions ---------------- */
 
-typedef enum { ACT_TOGGLE, ACT_PAUSE, ACT_DISCARD, ACT_CANCEL, ACT_COPY_LAST, ACT_MODE_PASTE, ACT_MODE_PASTE_COPY, ACT_MODE_CLIPBOARD, ACT_HOTKEYS } action;
+typedef enum { ACT_TOGGLE, ACT_PAUSE, ACT_DISCARD, ACT_CANCEL, ACT_COPY_LAST, ACT_MODE_PASTE, ACT_MODE_PASTE_COPY, ACT_MODE_CLIPBOARD, ACT_HOTKEYS, ACT_ARM, ACT_DISARM } action;
 
 static void apply_hotkeys(void);
+static void settings_click(void *user, SDL_TrayEntry *entry);
 
 // Every action runs as a task, so the thread that asked (the tray's, a hotkey's, another
 // instance's) never waits on the pipeline.
@@ -91,18 +94,32 @@ static void act(void *user) {
         break;
     }
     case ACT_HOTKEYS: apply_hotkeys(); break;
+    // The discard hotkey comes and goes with the dictation, so the key is the user's the rest of the time.
+    case ACT_ARM: eh_hotkeys_arm_discard(true); break;
+    case ACT_DISARM: eh_hotkeys_arm_discard(false); break;
     }
 }
 
 static void spawn_action(action a) { eh_spawn(act, (void *)(intptr_t)a); }
 
-static void hotkey_fired(int id) {
-    spawn_action(id == HOTKEY_RECORD ? ACT_TOGGLE : id == HOTKEY_PAUSE ? ACT_PAUSE : ACT_DISCARD);
+// A hotkey was pressed: which one is looked up under the lock, where the table is kept.
+static void fired(void *user) {
+    int id = (int)(intptr_t)user;
+    if (id < 1 || id > (int)SDL_arraysize(R.grabbed) || !R.grabbed[id - 1].accelerator[0]) return;
+    switch (R.grabbed[id - 1].name) {
+    case EH_HK_RECORD: eh_pipeline_toggle(); break;
+    case EH_HK_PAUSE: eh_pipeline_pause_toggle(); break;
+    case EH_HK_DISCARD: eh_pipeline_discard(); break;
+    default: break;
+    }
 }
+
+static void hotkey_fired(int id) { eh_spawn(fired, (void *)(intptr_t)id); }
 
 // Called on the instance listener's thread, which is live before the app is.
 static void instance_args(int argc, char **argv) {
     for (int i = 0; i < argc; i++) {
+        if (!SDL_strcmp(argv[i], "--settings")) { settings_click(NULL, NULL); continue; }
         action a = !SDL_strcmp(argv[i], "--toggle") ? ACT_TOGGLE : !SDL_strcmp(argv[i], "--pause") ? ACT_PAUSE : !SDL_strcmp(argv[i], "--discard") ? ACT_DISCARD : ACT_HOTKEYS;
         if (a == ACT_HOTKEYS) continue;
         if (SDL_GetAtomicInt(&R.ready)) { spawn_action(a); continue; }
@@ -112,27 +129,44 @@ static void instance_args(int argc, char **argv) {
 
 /* ---------------- hotkeys ---------------- */
 
-// With the lock held. One hotkey from the settings; an empty one is released.
-static void apply_hotkey(int id, const char *path, const char *what, bool wanted) {
-    const char *text = eh_setting_str(path);
-    char error[256], label[64];
+// The desktop's key grabs, as src/hotkeys.c asks for them. Grabbing can wait for the main thread
+// (macOS), so the lock is let go meanwhile; hotkeys.c keeps its changes from overlapping.
+static int grab(const char *accelerator, int name, char *error, size_t error_size) {
     eh_accelerator a;
-    if (!wanted || !*text) { EH_AWAIT(eh_hotkey_unregister(id)); return; }
-    bool ok = eh_accelerator_parse(text, &a, error, sizeof error);
-    if (ok) EH_AWAIT(ok = eh_hotkey_register(id, &a, error, sizeof error));
-    if (ok) return;
-    eh_accelerator_label(text, label, sizeof label);
-    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "could not register the %s hotkey \"%s\" (%s)", what, label, error);
+    if (!eh_accelerator_parse(accelerator, &a, error, error_size)) return 2;
+    int slot = -1;
+    for (int i = 0; i < (int)SDL_arraysize(R.grabbed); i++) {
+        if (!SDL_strcmp(R.grabbed[i].accelerator, accelerator)) return 1;  // held already, as another hotkey
+        if (slot < 0 && !R.grabbed[i].accelerator[0]) slot = i;
+    }
+    if (slot < 0 || !R.hotkeys) return 1;
+    // The slot is taken before the wait, so a second grab cannot choose it meanwhile.
+    SDL_strlcpy(R.grabbed[slot].accelerator, accelerator, sizeof R.grabbed[slot].accelerator);
+    R.grabbed[slot].name = -1;
+    bool ok;
+    char why[256];
+    EH_AWAIT(ok = eh_hotkey_register(slot + 1, &a, why, sizeof why));
+    if (ok) R.grabbed[slot].name = name;
+    else R.grabbed[slot].accelerator[0] = 0;
+    return ok ? 0 : 1;
 }
 
+static void ungrab(const char *accelerator) {
+    for (int i = 0; i < (int)SDL_arraysize(R.grabbed); i++) {
+        if (SDL_strcmp(R.grabbed[i].accelerator, accelerator)) continue;
+        R.grabbed[i].name = -1;
+        EH_AWAIT(eh_hotkey_unregister(i + 1));
+        R.grabbed[i].accelerator[0] = 0;
+    }
+}
+
+// With the lock held: the hotkeys of the settings, each failure logged with its reason.
 static void apply_hotkeys(void) {
-    if (!R.hotkeys) return;
-    apply_hotkey(HOTKEY_RECORD, "hotkey", "record", true);
-    apply_hotkey(HOTKEY_PAUSE, "pauseHotkey", "pause", true);
-    // The discard hotkey is held only while a dictation is live, so the key is the user's the
-    // rest of the time.
-    R.discard_held = eh_pipeline_state() != EH_IDLE;
-    apply_hotkey(HOTKEY_DISCARD, "discardHotkey", "discard", R.discard_held);
+    eh_hotkey_results results;
+    eh_hotkeys_apply(eh_settings(), &results);
+    static const char *const what[EH_HK_COUNT] = { "record", "pause", "discard", "correction" };
+    for (int n = 0; n < EH_HK_COUNT; n++)
+        if (!results.r[n].ok && R.hotkeys) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s hotkey: %s", what[n], results.r[n].error);
 }
 
 /* ---------------- the tray ---------------- */
@@ -141,6 +175,12 @@ static void menu_click(void *user, SDL_TrayEntry *entry) { spawn_action((action)
 
 static void quit_click(void *user, SDL_TrayEntry *entry) {
     SDL_Event e = { .type = SDL_EVENT_QUIT };
+    SDL_PushEvent(&e);
+}
+
+// Windows are opened on the main thread: the click is passed on as an event.
+static void settings_click(void *user, SDL_TrayEntry *entry) {
+    SDL_Event e = { .user = { .type = R.refresh_event, .code = 2 } };
     SDL_PushEvent(&e);
 }
 
@@ -175,6 +215,9 @@ static void refresh_tray(void) {
     add(NULL, 0, NULL, 0);
     add("Copy last transcription", SDL_TRAYENTRY_BUTTON | (has_last && state != EH_PROCESSING ? 0 : SDL_TRAYENTRY_DISABLED), menu_click, ACT_COPY_LAST);
     add(NULL, 0, NULL, 0);
+    SDL_TrayEntry *open = SDL_InsertTrayEntryAt(R.menu, -1, "Settings…", SDL_TRAYENTRY_BUTTON);
+    if (open) SDL_SetTrayEntryCallback(open, settings_click, NULL);
+    add(NULL, 0, NULL, 0);
     SDL_TrayEntry *quit = SDL_InsertTrayEntryAt(R.menu, -1, "Quit Earheart", SDL_TRAYENTRY_BUTTON);
     if (quit) SDL_SetTrayEntryCallback(quit, quit_click, NULL);
     SDL_SetTrayIcon(R.tray, state == EH_RECORDING ? R.icon_recording : R.icon);
@@ -202,22 +245,18 @@ static void observer(const char *kind, const char *a, const char *b, double numb
     } else if (!SDL_strcmp(kind, "status")) {
         SDL_Log("status: %s%s%s", a, eh_jv_get(detail, "message") ? ": " : "", eh_jv_string(eh_jv_get(detail, "message"), ""));
     } else if (!SDL_strcmp(kind, "state")) {
-        // The discard hotkey comes and goes with the dictation.
-        if (R.hotkeys && (SDL_strcmp(a, "idle") != 0) != R.discard_held) spawn_action(ACT_HOTKEYS);
+        spawn_action(SDL_strcmp(a, "idle") ? ACT_ARM : ACT_DISARM);
     }
     // The main thread is woken: the tray for what its menu shows, the overlay for everything.
     bool tray = !SDL_strcmp(kind, "state") || !SDL_strcmp(kind, "history");
     if (tray || !SDL_strcmp(kind, "status") || !SDL_strcmp(kind, "progress") || !SDL_strcmp(kind, "partial") || !SDL_strcmp(kind, "overlay")) {
-        SDL_Event e = { .type = R.refresh_event, .user.code = tray };
+        SDL_Event e = { .user = { .type = R.refresh_event, .code = tray } };
         SDL_PushEvent(&e);
     }
 }
 
 static void settings_changed(void *user, const eh_jv *previous, const eh_jv *current) {
-    static const char *const keys[] = { "hotkey", "pauseHotkey", "discardHotkey" };
-    for (int i = 0; i < 3; i++)
-        if (!eh_jv_equal(eh_jv_get(previous, keys[i]), eh_jv_get(current, keys[i]))) { spawn_action(ACT_HOTKEYS); break; }
-    SDL_Event e = { .type = R.refresh_event, .user.code = 1 };
+    SDL_Event e = { .user = { .type = R.refresh_event, .code = 1 } };
     SDL_PushEvent(&e);
 }
 
@@ -241,11 +280,12 @@ static bool engine_check(void) {
 }
 
 int eh_run(int argc, char **argv) {
-    bool smoke = false, check = false, forwardable = false;
+    bool smoke = false, check = false, forwardable = false, open_settings = false;
     for (int i = 1; i < argc; i++) {
         if (!SDL_strcmp(argv[i], "--smoke-test")) smoke = true;
         else if (!SDL_strcmp(argv[i], "--engine-check")) check = true;
         else if (!SDL_strcmp(argv[i], "--toggle") || !SDL_strcmp(argv[i], "--pause") || !SDL_strcmp(argv[i], "--discard") || !SDL_strcmp(argv[i], "--correct-last")) forwardable = true;
+        else if (!SDL_strcmp(argv[i], "--settings")) open_settings = true;
         else if (SDL_strcmp(argv[i], "--hidden")) { fprintf(stderr, "earheart: unknown option %s\n", argv[i]); return 2; }
     }
     const char *data = eh_data_dir();
@@ -265,6 +305,8 @@ int eh_run(int argc, char **argv) {
     SDL_SetAppMetadata("Earheart", EARHEART_VERSION, "dev.wakamex.earheart");
     // A tray app: no Dock icon and no menu bar of its own on macOS.
     SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");
+    // Closing the settings window is not quitting: the app lives in the tray.
+    SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0");
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) { SDL_Log("could not start: %s", SDL_GetError()); return 1; }
     R.refresh_event = SDL_RegisterEvents(1);
 
@@ -274,6 +316,8 @@ int eh_run(int argc, char **argv) {
     // A WAV file in place of the microphone, for the end-to-end tests.
     if (SDL_getenv("EARHEART_FAKE_MIC")) eh_recorder_fake_microphone(SDL_getenv("EARHEART_FAKE_MIC"), 1);
     char error[256];
+    static const eh_hotkey_backend desktop = { grab, ungrab };
+    eh_hotkeys_backend(&desktop);
     R.hotkeys = eh_hotkeys_init(hotkey_fired, error, sizeof error);
     if (!R.hotkeys) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "no global hotkeys here (%s): bind a system shortcut to `earheart --toggle`", error);
     eh_unlock();
@@ -292,6 +336,7 @@ int eh_run(int argc, char **argv) {
     SDL_Log("Earheart %s started; data in %s", EARHEART_VERSION, data);
 
     eh_overlay_init();
+    if (open_settings && !smoke) settings_click(NULL, NULL);
 
     int status = 0;
     if (smoke) {
@@ -310,14 +355,18 @@ int eh_run(int argc, char **argv) {
             if (SDL_WaitEventTimeout(&e, wait)) {
                 do {
                     if (e.type == SDL_EVENT_QUIT) goto done;
-                    if (e.type == R.refresh_event && e.user.code) refresh_tray();
-                    eh_overlay_event(&e);
+                    if (e.type == R.refresh_event && e.user.code == 1) refresh_tray();
+                    if (e.type == R.refresh_event && e.user.code == 2) eh_settings_window_open(NULL);
+                    if (!eh_overlay_event(&e)) eh_settings_window_event(&e);
                 } while (SDL_PollEvent(&e));
             }
             wait = eh_overlay_frame();
+            int window = eh_settings_window_frame();
+            if (window >= 0 && (wait < 0 || window < wait)) wait = window;
         }
     }
 done:
+    eh_settings_window_close();
     eh_overlay_quit();
     eh_lock();
     eh_engines_stop();
