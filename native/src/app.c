@@ -29,6 +29,11 @@ static void set_status(const char *status, const eh_jv *detail) {
     // A status is a phase change: the bar starts over, and the transcript goes with the recording.
     A.view.phase[0] = 0;
     A.view.fraction = 0;
+    if (SDL_strcmp(status, "recording") && SDL_strcmp(status, "paused")) {
+        SDL_free(A.view.raw);
+        SDL_free(A.view.cleaned);
+        A.view.raw = A.view.cleaned = NULL;
+    }
     tell("status", status, NULL, 0, detail);
 }
 

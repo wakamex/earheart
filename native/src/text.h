@@ -18,6 +18,8 @@ char *eh_strip_stumbles(const char *text);  // fillers first: removing one can l
 // case or punctuation, and "" on any disagreement.
 char *eh_residual_tail(const char *live, const char *committed);
 
+// A word for comparison: lowercase, letters and numbers only.
+char *eh_norm_word(const char *from, const char *to);
 char *eh_trim(const char *text);  // without the whitespace JavaScript's trim() removes
 
 // One code point from UTF-8 at *s, which is advanced past it. Malformed bytes come back one by one.

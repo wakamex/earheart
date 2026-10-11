@@ -64,7 +64,7 @@ jobs:
         run: zig-out/bin/earheart models --models ../models download stt/parakeet-tdt-0.6b-v3-int8
       - name: Install the X tools the end-to-end test drives
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y xvfb xdotool
+        run: sudo apt-get update && sudo apt-get install -y xvfb xdotool openbox
       - name: Dictate end to end
         env:
           EARHEART_MODELS: ${{ github.workspace }}/models
@@ -73,7 +73,7 @@ jobs:
             # A crash of either program leaves a core to read the stack from.
             sudo sysctl -q kernel.core_pattern=/tmp/core.%e.%p
             ulimit -c unlimited
-            xvfb-run -a tests/e2e.sh || status=$?
+            xvfb-run -a sh -c 'openbox & sleep 1; tests/e2e.sh' || status=$?
             for core in /tmp/core.*; do
               [ -f "$core" ] || continue
               sudo apt-get install -y gdb >/dev/null 2>&1

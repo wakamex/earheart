@@ -365,8 +365,7 @@ char *eh_strip_stumbles(const char *text) {
 
 /* ---------------- words ---------------- */
 
-// A word for comparison: lowercase, letters and numbers only.
-static char *norm_word(const char *from, const char *to) {
+char *eh_norm_word(const char *from, const char *to) {
     buf b = { 0 };
     put(&b, "", 0);
     for (const char *p = from; p < to;) {
@@ -408,7 +407,7 @@ char *eh_residual_tail(const char *live, const char *committed) {
     const char *lf, *lt, *cf, *ct;
     while (next_word(&l, &lf, &lt, &l_more)) {
         if (next_word(&c, &cf, &ct, &c_more)) {
-            char *a = norm_word(lf, lt), *b = norm_word(cf, ct);
+            char *a = eh_norm_word(lf, lt), *b = eh_norm_word(cf, ct);
             bool same = !SDL_strcmp(a, b);
             SDL_free(a);
             SDL_free(b);

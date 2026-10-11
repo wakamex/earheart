@@ -6,7 +6,8 @@
 #
 #   EARHEART_MODELS=<dir> tests/e2e.sh [WAV [TALK_SECONDS]]
 #
-# Linux: needs an X display (run under xvfb-run) and xdotool. Windows: run from Git Bash in a
+# Linux: needs an X display with a window manager (under xvfb-run, start one first: with none, SDL
+# gives the keyboard to every window it shows) and xdotool. Windows: run from Git Bash in a
 # desktop session. macOS: pasting needs Accessibility granted to the program or to whatever started
 # it (GitHub's runners grant it to their shell); without it set EARHEART_E2E_NO_PASTE=1, and the
 # test checks the fallback instead: the text on the clipboard and the notice in the log. The hotkey
@@ -50,7 +51,13 @@ run() {  # $1: how the dictation is started and stopped; $2: what to call it
         for i in $(seq 100); do grep -q ready "$EARHEART_DATA/target.out" && break; sleep 0.1; done
         command -v xdotool >/dev/null && xdotool search --name paste-target windowfocus 2>/dev/null
         sleep 0.5
-        $1; sleep "$talk"; $1
+        $1; sleep 3
+        # Mid-recording the overlay is up, and the keyboard is still the target's.
+        if command -v xdotool >/dev/null; then
+            xdotool search --onlyvisible --name '^Earheart$' >/dev/null || fail "$2: no overlay on screen while recording"
+            [ "$(xdotool getwindowfocus getwindowname)" = paste-target ] || fail "$2: the overlay took the keyboard from the focused window"
+        fi
+        sleep $((talk - 3)); $1
         wait $target || fail "$2: nothing was pasted"
         pasted=$(sed -n 's/^pasted: //p' "$EARHEART_DATA/target.out" | tr -d '\r')
         after=$(sed -n 's/^clipboard: //p' "$EARHEART_DATA/target.out" | tr -d '\r')

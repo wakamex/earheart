@@ -17,6 +17,7 @@
 #include "history.h"
 #include "icons.h"
 #include "loop.h"
+#include "overlay.h"
 #include "paths.h"
 #include "recorder.h"
 #include "settings.h"
@@ -199,8 +200,10 @@ static void observer(const char *kind, const char *a, const char *b, double numb
         // The discard hotkey comes and goes with the dictation.
         if (R.hotkeys && (SDL_strcmp(a, "idle") != 0) != R.discard_held) spawn_action(ACT_HOTKEYS);
     }
-    if (!SDL_strcmp(kind, "state") || !SDL_strcmp(kind, "history")) {
-        SDL_Event e = { .type = R.refresh_event };
+    // The main thread is woken: the tray for what its menu shows, the overlay for everything.
+    bool tray = !SDL_strcmp(kind, "state") || !SDL_strcmp(kind, "history");
+    if (tray || !SDL_strcmp(kind, "status") || !SDL_strcmp(kind, "progress") || !SDL_strcmp(kind, "partial") || !SDL_strcmp(kind, "overlay")) {
+        SDL_Event e = { .type = R.refresh_event, .user.code = tray };
         SDL_PushEvent(&e);
     }
 }
@@ -209,7 +212,7 @@ static void settings_changed(void *user, const eh_jv *previous, const eh_jv *cur
     static const char *const keys[] = { "hotkey", "pauseHotkey", "discardHotkey" };
     for (int i = 0; i < 3; i++)
         if (!eh_jv_equal(eh_jv_get(previous, keys[i]), eh_jv_get(current, keys[i]))) { spawn_action(ACT_HOTKEYS); break; }
-    SDL_Event e = { .type = R.refresh_event };
+    SDL_Event e = { .type = R.refresh_event, .user.code = 1 };
     SDL_PushEvent(&e);
 }
 
@@ -279,6 +282,8 @@ int eh_run(int argc, char **argv) {
     refresh_tray();
     SDL_Log("Earheart %s started; data in %s", EARHEART_VERSION, data);
 
+    eh_overlay_init();
+
     int status = 0;
     if (smoke) {
         // Everything is started; the queue is emptied once, then the engines are checked when asked.
@@ -286,11 +291,21 @@ int eh_run(int argc, char **argv) {
         eh_loop_drain();
         if (check && !engine_check()) status = 1;
     } else {
-        for (SDL_Event e; SDL_WaitEvent(&e);) {
-            if (e.type == SDL_EVENT_QUIT) break;
-            if (e.type == R.refresh_event) refresh_tray();
+        // The overlay says when it wants its next frame; until then the loop sleeps on events.
+        for (int wait = -1;;) {
+            SDL_Event e;
+            if (SDL_WaitEventTimeout(&e, wait)) {
+                do {
+                    if (e.type == SDL_EVENT_QUIT) goto done;
+                    if (e.type == R.refresh_event && e.user.code) refresh_tray();
+                    eh_overlay_event(&e);
+                } while (SDL_PollEvent(&e));
+            }
+            wait = eh_overlay_frame();
         }
     }
+done:
+    eh_overlay_quit();
     eh_lock();
     eh_engines_stop();
     eh_unlock();

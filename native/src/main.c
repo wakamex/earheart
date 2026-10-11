@@ -27,6 +27,8 @@
 #include "cleanup.h"
 #include "cores.h"
 #include "download.h"
+#include "gs_rand.h"
+#include "overlay.h"
 #include "engine.h"
 #include "paths.h"
 
@@ -73,6 +75,29 @@ static int cmd_models(int argc, char **argv) {
         printf("%s: %s\n", argv[i], download ? "installed" : "removed");
     }
     return 0;
+}
+
+// earheart overlay-shot OUT.png STATUS [TITLE [DETAIL [CLEAN [RAW]]]]: one frame of the overlay as a
+// picture, for tests and the README.
+static int cmd_overlay_shot(int argc, char **argv) {
+    if (argc < 2) return usage();
+    eh_overlay_model m = { 0 };
+    SDL_strlcpy(m.status, argv[1], sizeof m.status);
+    SDL_strlcpy(m.title, argc > 2 ? argv[2] : "Listening…", sizeof m.title);
+    SDL_strlcpy(m.detail, argc > 3 ? argv[3] : "", sizeof m.detail);
+    m.clean = argc > 4 ? argv[4] : NULL;
+    m.raw = argc > 5 ? argv[5] : NULL;
+    SDL_strlcpy(m.timer, "0:07", sizeof m.timer);
+    // A voice for the waveform: a few words' worth of levels.
+    gs_mulberry rng = { 7 };
+    for (int i = 0; i < 160; i++) m.levels[i] = (float)(0.01 + 0.12 * gs_mulberry_next(&rng) * (0.5 + 0.5 * SDL_sin(i * 0.21)));
+    m.level_count = 160;
+    m.progress = !SDL_strcmp(m.status, "transcribing") || !SDL_strcmp(m.status, "cleaning");
+    m.fraction = 0.62f;
+    if (!SDL_Init(SDL_INIT_VIDEO)) { fprintf(stderr, "earheart: %s\n", SDL_GetError()); return 1; }
+    bool ok = eh_overlay_shot(&m, argv[0], 2);
+    SDL_Quit();
+    return ok ? 0 : 1;
 }
 
 int eh_cmd_dictate(int argc, char **argv);  // dictate.c
@@ -341,6 +366,7 @@ int main(int argc, char **argv) {
     if (argc >= 2 && !SDL_strcmp(argv[1], "clean")) return cmd_clean(argc - 2, argv + 2);
     if (argc >= 2 && !SDL_strcmp(argv[1], "dictate")) return eh_cmd_dictate(argc - 2, argv + 2);
     if (argc >= 2 && !SDL_strcmp(argv[1], "models")) return cmd_models(argc - 2, argv + 2);
+    if (argc >= 2 && !SDL_strcmp(argv[1], "overlay-shot")) return cmd_overlay_shot(argc - 2, argv + 2);
     if (argc >= 2 && (!SDL_strcmp(argv[1], "--help") || !SDL_strcmp(argv[1], "-h"))) { usage(); return 0; }
     // Anything else is the app itself: in the tray, or handing its arguments to the instance there.
     return eh_run(argc, argv);
