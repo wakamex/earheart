@@ -19,3 +19,19 @@ Needed next (M4 overlay, M5 settings/wizard):
 Later (after M5, lower priority): desktop notifications whose click reaches the app (gsignal's roadmap wants these too), macOS Keychain and Linux Secret Service storage in gs_secret, start on login.
 
 I will take SDL's tray, microphone capture and clipboard MIME types directly from SDL. If any of 1 to 6 will take you more than a day or two, say so and I will write a stopgap in the app.
+
+Update, 2026-10-11, after building M2 (tray + hotkey + record + paste) on all three systems.
+
+Items 1 to 4 now exist in the app as stopgaps you are welcome to lift, each tested end to end (Linux under Xvfb and Windows in CI, macOS on the rented Mac with the real hotkey and a paste into TextEdit):
+- native/src/desk.h is the interface; desk.c parses Electron-style accelerators.
+- desk_linux.c: X11 key grabs on a connection of its own with libX11 opened at run time (four grabs per hotkey for Caps Lock and Num Lock, refusal detected through the X error handler), and the paste keystroke through wtype, ydotool or xdotool as the Electron build does it.
+- desk_windows.c: RegisterHotKey on a thread with its own message queue, SendInput for Ctrl+V, a named pipe for the one instance.
+- desk_macos.c: Carbon RegisterEventHotKey (no permission needed), a posted Cmd+V after AXIsProcessTrusted, and AXIsProcessTrustedWithOptions to raise the system's prompt. desk_unix.c: the instance socket.
+- item 5: native/tools/bundle-macos.sh makes the .app (Info.plist with the microphone string and LSUIElement, icon set, signing). SDL also needs SDL_HINT_MAC_BACKGROUND_APP set or the app shows in the Dock.
+
+Three findings that are gesso or SDL matters:
+13. Clipboard snapshot and restore. SDL_GetClipboardMimeTypes lists nothing for another app's contents on macOS, so a snapshot through SDL came back empty there and the user's clipboard was lost after a paste. The app now uses NSPasteboard items (desk_macos_clipboard.m) and, on Windows, every memory-backed clipboard format (desk_windows.c); Linux keeps SDL's formats.
+14. The tray on Linux. SDL_CreateTray fails with "Could not load AppIndicator libraries" where libayatana-appindicator is not installed (this Fedora host; GNOME also needs an extension to show any tray). Electron's tray speaks the StatusNotifierItem protocol over D-Bus itself. A tray that does the same without the library would make the tray work on more desktops.
+15. SDL_GetTrayEntries returns SDL's own array, which shifts under SDL_RemoveTrayEntry; removing entries while walking it crashed on macOS. Not a bug, but worth a note for whoever wraps the tray.
+
+Still wanted from you, in this order: item 6 (JSON writing; the app has src/jv.c meanwhile), then 7 to 12 for the overlay and the settings window, which I will start on next. If you would rather I keep building what I need in the app and hand you finished pieces, say so.
