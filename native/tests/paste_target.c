@@ -4,11 +4,29 @@
 // see both the text delivered and the user's own clipboard coming back. Exits 0 after that, or 1
 // when no paste arrived within the time given.
 //   paste-target TEXT [SECONDS]
+//   paste-target --hotkey          Windows: presses Ctrl+Shift+Space, the default record hotkey
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <stdio.h>
+#ifdef _WIN32
+#include <windows.h>
+
+static int press_hotkey(void) {
+    const WORD keys[] = { VK_CONTROL, VK_SHIFT, VK_SPACE };
+    INPUT in[6] = { 0 };
+    for (int i = 0; i < 6; i++) {
+        in[i].type = INPUT_KEYBOARD;
+        in[i].ki.wVk = keys[i < 3 ? i : 5 - i];
+        if (i >= 3) in[i].ki.dwFlags = KEYEVENTF_KEYUP;
+    }
+    return SendInput(6, in, sizeof(INPUT)) == 6 ? 0 : 1;
+}
+#else
+static int press_hotkey(void) { return 2; }
+#endif
 
 int main(int argc, char **argv) {
+    if (argc > 1 && !SDL_strcmp(argv[1], "--hotkey")) return press_hotkey();
     const char *original = argc > 1 ? argv[1] : "the user's own clipboard";
     Uint64 deadline = SDL_GetTicks() + (Uint64)(argc > 2 ? SDL_atoi(argv[2]) : 120) * 1000, pasted_at = 0;
     if (!SDL_Init(SDL_INIT_VIDEO)) { fprintf(stderr, "paste-target: %s\n", SDL_GetError()); return 2; }
