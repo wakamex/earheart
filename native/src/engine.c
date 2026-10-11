@@ -22,7 +22,7 @@ struct eh_engine {
     SDL_Mutex *write_lock;  // one request on the pipe at a time
     SDL_Condition *answered;
     SDL_Semaphore *wake;    // posted once per request sent, and once to end the reader
-    SDL_AtomicInt quit;
+    SDL_AtomicInt quit, gone;  // gone: the reader saw the pipe close
     call *calls;            // sent and not yet answered
     unsigned next_id, generation;
     SDL_Mutex *order_lock;  // places in the queue to send
@@ -92,6 +92,9 @@ static int reader_main(void *user) {
             SDL_free(json);
             SDL_LockMutex(e->lock);
             if (!doc) {
+                // The pipe closes a moment before the process reads as exited: the worker is
+                // marked gone here, so the next call starts another instead of writing to this one.
+                SDL_SetAtomicInt(&e->gone, 1);
                 fail_calls(e);
                 SDL_UnlockMutex(e->lock);
                 return 0;
@@ -149,7 +152,7 @@ eh_engine *eh_engine_new(const char *kind) {
 
 static bool running(eh_engine *e) {
     int code;
-    return e->proc && !SDL_WaitProcess(e->proc, false, &code);
+    return e->proc && !SDL_GetAtomicInt(&e->gone) && !SDL_WaitProcess(e->proc, false, &code);
 }
 
 bool eh_engine_running(eh_engine *e) {
@@ -185,6 +188,7 @@ static void stop(eh_engine *e) {
     e->proc = NULL;
     e->reader = NULL;
     SDL_SetAtomicInt(&e->quit, 0);
+    SDL_SetAtomicInt(&e->gone, 0);
     while (SDL_TryWaitSemaphore(e->wake)) {}
     SDL_LockMutex(e->lock);
     fail_calls(e);
