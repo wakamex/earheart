@@ -45,10 +45,10 @@ while [ $# -gt 0 ]; do
     case "$file" in *.zip) unzip -q "$file" -d "$tmp/x" ;; *) tar -xf "$file" -C "$tmp/x" ;; esac
 done
 # Keep the libraries the app loads and what they load in turn: the C interfaces, ONNX Runtime, and
-# llama.cpp with its CPU and GPU backends. The archives' programs, the Node addon and llama.cpp's
-# network backend stay out.
+# llama.cpp with its CPU and GPU backends. The archives' programs and the Node addon stay out, and
+# so does llama.cpp's network backend where it is a plug-in (on macOS libggml links it).
 find "$tmp/x" \( -type f -o -type l \) \( -name '*sherpa-onnx-c-api.*' -o -name '*onnxruntime*' -o -name 'libllama.*' -o -name 'llama.dll' \
-    -o -name 'libggml*' -o -name 'ggml*.dll' -o -name 'libomp*' \) ! -name '*rpc*' -exec cp -L {} "$out/" \;
+    -o -name 'libggml*' -o -name 'ggml*.dll' -o -name 'libomp*' \) ! -name '*rpc*.so' ! -name '*rpc*.dll' -exec cp -L {} "$out/" \;
 # A versioned library is kept once, under the name the others ask the loader for (libggml.so.0,
 # libggml.0.dylib).
 for f in "$out"/*.so.[0-9]* "$out"/*.[0-9]*.dylib; do
