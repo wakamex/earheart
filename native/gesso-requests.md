@@ -1,0 +1,21 @@
+Feature requests from the Earheart port. Mihai asked me to port Earheart (github.com/cleanunicorn/earheart, an Electron voice-dictation app: global hotkey, record, transcribe locally, paste into the focused app) to a C app on gesso, on Linux, Windows and macOS, and to send you whatever it needs from gesso. The plan is /code/earheart-native/native/plan.md (the table "What gesso needs" has the evidence per item). The app lives in /code/earheart-native/native on branch feat/native-port and will pin gesso by commit URL, so I can only use what is pushed. Design is yours; below is the behaviour wanted, in the order I will need it. Tell me which you will take, which you think belong in the app instead, and the commit to pin as each lands.
+
+Needed first (my milestone M2: tray + hotkey + record + paste, no windows):
+1. Global hotkeys on Windows, macOS and Linux X11: register a key combination that fires while another app has focus, replace it, release it, and report a refused registration (already taken) so the app can keep the old one. Earheart holds up to four at once and releases them all while a settings field captures a key. On Wayland I only need a clear "unsupported here" answer; the app falls back to `earheart --toggle` bound to a system shortcut.
+2. Send the paste chord (Ctrl+V, Cmd+V on macOS) to whichever app has focus, with a result that distinguishes "sent", "not permitted" (macOS Accessibility not granted) and "no way to do it here". Earheart today spawns PowerShell, osascript and xdotool/wtype/ydotool for this; native calls would drop a process start per dictation and macOS's Automation permission. On Wayland, spawning wtype or ydotool is fine.
+3. A probe and prompt for macOS Accessibility permission (is this process trusted; open the system prompt or settings pane).
+4. Single instance with argument forwarding: a second `earheart --toggle` hands its arguments to the running instance and exits.
+5. macOS app bundles from the Zig build: Info.plist with usage strings (NSMicrophoneUsageDescription), an icon, a tray-only mode with no Dock icon (LSUIElement), and signing with a named certificate. A bare executable cannot ask for the microphone. Evidence that macOS builds work at all: on a rented Mac mini (M2 Pro, macOS 26.6.2, Xcode 26.5, Zig 0.17.0) gesso at 521ce3a passes `zig build test` with and without -Dvideo, and gtube v0.2.1 builds and renders `--demo --shot`. castholm/SDL refuses to cross-compile to macOS without SDK paths, so macOS builds must run on a Mac or a macOS CI runner. Ask Mihai for access to that machine if you want it.
+6. Writing JSON (gs_json only reads): settings and history are JSON files, written whole and atomically.
+
+Needed next (M4 overlay, M5 settings/wizard):
+7. A window that never takes keyboard focus, stays above other windows including full-screen apps, shows on every workspace, and is transparent. SDL has the flags for most of it; all-workspaces and above-full-screen have no SDL call, and native Wayland cannot place a window.
+8. Several windows in one process, each with its own gs_ui (overlay, settings, wizard and a correction editor can be open together).
+9. Drawing for a designed interface: rounded rectangles (filled and outlined), per-draw opacity, a progress bar, and a way to animate (ease a value over time and keep frames coming while it moves).
+10. Form controls gs_ui lacks: a masked field for API keys, a radio group, a number field, a clickable link, a long page of sections with a scroll position the app can read and set (for an index that follows the scroll), and a modal confirm.
+11. Every control reachable with Tab/Shift+Tab and operable from the keyboard with a visible focus mark. This is a stated product commitment of Earheart's.
+12. A field that captures a key combination (for choosing a hotkey) and reports it in a form the hotkey module accepts.
+
+Later (after M5, lower priority): desktop notifications whose click reaches the app (gsignal's roadmap wants these too), macOS Keychain and Linux Secret Service storage in gs_secret, start on login.
+
+I will take SDL's tray, microphone capture and clipboard MIME types directly from SDL. If any of 1 to 6 will take you more than a day or two, say so and I will write a stopgap in the app.
