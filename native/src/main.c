@@ -3,7 +3,8 @@
 //                                             the app, in the tray (run.c)
 //   earheart transcribe [--models DIR] [--model ID] [--json] [--list FILE] FILE.wav...
 //                                             print each file's transcript; --list names a file of
-//                                             paths, one a line
+//                                             paths, one a line; --chunked decodes each as a dictation
+//                                             is decoded: in pieces cut at the pauses (chunked.h)
 //   earheart clean [--models DIR] [--model ID] [--cpu] [--system FILE] [--temperature T] [--tokens] TEXT
 //                                             print TEXT cleaned up ("-" reads it from standard input);
 //                                             --tokens prints the prompt's tokens instead, for tests
@@ -18,6 +19,9 @@
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include "catalog.h"
+#include "chunked.h"
+#include "jv.h"
+#include "wav.h"
 #include "cleanup.h"
 #include "cores.h"
 #include "engine.h"
@@ -28,7 +32,7 @@ int eh_run(int argc, char **argv);          // run.c
 
 static int usage(void) {
     fprintf(stderr, "usage: earheart [--hidden | --toggle | --pause | --discard]\n"
-                    "       earheart transcribe [--models DIR] [--model ID] [--json] [--list FILE] FILE.wav...\n"
+                    "       earheart transcribe [--models DIR] [--model ID] [--json] [--chunked] [--list FILE] FILE.wav...\n"
                     "       earheart clean [--models DIR] [--model ID] [--cpu] [--system FILE] [--temperature T] [--tokens] TEXT\n"
                     "       earheart clean [--models DIR] [--model ID] [--cpu] --batch < requests.jsonl\n");
     return 2;
@@ -40,15 +44,77 @@ static int fail(eh_engine_reply *r) {
     return 1;
 }
 
+typedef struct { eh_engine *e; int inputs, decode_ms; double max_seconds; } chunked_run;
+
+static eh_decode_code chunked_decode(void *user, const uint8_t *wav, size_t len, char **text, int *decode_ms, char *error, size_t error_size) {
+    chunked_run *c = user;
+    c->inputs++;
+    c->max_seconds = SDL_max(c->max_seconds, eh_wav_seconds(wav, len));
+    eh_jw w;
+    eh_jw_begin(&w);
+    eh_jw_str(&w, "type", "transcribe");
+    eh_engine_reply reply;
+    eh_engine_status s = eh_engine_call(c->e, &w, wav, len, 0, NULL, NULL, &reply);
+    eh_decode_code code = s == EH_ENGINE_OK ? EH_DECODE_OK : s == EH_ENGINE_EXITED ? EH_DECODE_EXITED : s == EH_ENGINE_TIMEOUT ? EH_DECODE_TIMEOUT : EH_DECODE_FAILED;
+    if (code == EH_DECODE_OK) {
+        *text = SDL_strdup(gs_json_str(gs_json_get(reply.v, "text"), ""));
+        *decode_ms = (int)gs_json_num(gs_json_get(reply.v, "decodeMs"), -1);
+        if (*decode_ms > 0) c->decode_ms += *decode_ms;
+    } else {
+        SDL_strlcpy(error, reply.error, error_size);
+    }
+    eh_engine_reply_free(&reply);
+    return code;
+}
+
+// One recording decoded as the app decodes a dictation, with what the measurement scripts want to
+// know about the pieces.
+static int transcribe_chunked(eh_engine *e, const char *file, const uint8_t *wav, size_t len, bool json) {
+    chunked_run run = { e, 0, 0, 0 };
+    eh_chunked o = { .run = chunked_decode, .user = &run, .min_sound_sec = -1, .min_utterance_sec = -1 };
+    eh_chunked_result r;
+    bool ok = eh_transcribe_chunked(wav, len, &o, &r);
+    if (!ok) fprintf(stderr, "earheart: %s: %s\n", file, r.error);
+    if (json) {
+        eh_jv *out = eh_jv_object(), *pieces = eh_jv_array();
+        eh_jv_set(out, "file", eh_jv_str(file));
+        eh_jv_set(out, "text", eh_jv_str(ok ? r.text : ""));
+        eh_jv_set(out, "partial", eh_jv_bool(r.partial));
+        if (!ok) eh_jv_set(out, "error", eh_jv_str(r.error));
+        eh_jv_set(out, "decodeMs", eh_jv_num(run.decode_ms));
+        eh_jv_set(out, "workerInputs", eh_jv_num(run.inputs));
+        eh_jv_set(out, "maxPieceSec", eh_jv_num(run.max_seconds));
+        for (int i = 0; i < r.piece_count; i++) {
+            eh_jv *p = eh_jv_object();
+            eh_jv_set(p, "seconds", eh_jv_num((double)(r.pieces[i].to - r.pieces[i].from) / EH_SAMPLE_RATE));
+            eh_jv_set(p, "ok", eh_jv_bool(r.pieces[i].ok));
+            eh_jv_set(p, "noise", eh_jv_bool(r.pieces[i].noise));
+            eh_jv_set(p, "unconfirmed", eh_jv_bool(r.pieces[i].unconfirmed));
+            eh_jv_push(pieces, p);
+        }
+        eh_jv_set(out, "pieces", pieces);
+        char *line = eh_jv_write(out, false);
+        puts(line);
+        SDL_free(line);
+        eh_jv_free(out);
+    } else if (ok) {
+        puts(r.text);
+    }
+    fflush(stdout);
+    eh_chunked_result_free(&r);
+    return ok ? 0 : 1;
+}
+
 static int cmd_transcribe(int argc, char **argv) {
     const char *models = SDL_getenv("EARHEART_MODELS"), *id = NULL, *list = NULL;
-    bool json = false;
+    bool json = false, chunked = false;
     int i = 0;
     for (; i < argc && argv[i][0] == '-'; i++) {
         if (!SDL_strcmp(argv[i], "--models") && i + 1 < argc) models = argv[++i];
         else if (!SDL_strcmp(argv[i], "--model") && i + 1 < argc) id = argv[++i];
         else if (!SDL_strcmp(argv[i], "--list") && i + 1 < argc) list = argv[++i];
         else if (!SDL_strcmp(argv[i], "--json")) json = true;
+        else if (!SDL_strcmp(argv[i], "--chunked")) chunked = true;
         else return usage();
     }
     if (list) {
@@ -90,6 +156,11 @@ static int cmd_transcribe(int argc, char **argv) {
         size_t len;
         void *wav = SDL_LoadFile(argv[i], &len);
         if (!wav) { fprintf(stderr, "earheart: %s: %s\n", argv[i], SDL_GetError()); failed = 1; continue; }
+        if (chunked) {
+            failed |= transcribe_chunked(e, argv[i], wav, len, json);
+            SDL_free(wav);
+            continue;
+        }
         eh_jw_begin(&w);
         eh_jw_str(&w, "type", "transcribe");
         bool ok = !eh_engine_call(e, &w, wav, len, 0, NULL, NULL, &msg);

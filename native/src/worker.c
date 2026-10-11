@@ -122,6 +122,10 @@ static void stt_serve(request *r) {
         eh_jw_str(&w, "provider", "cpu");
         send_json(&w);
     } else if (is(r, "transcribe")) {
+        // For the tests: once this file exists the worker dies on a decode, as a crash in the
+        // engine's native code would kill it, and so does each worker started after it.
+        const char *die = SDL_getenv("EARHEART_TEST_STT_DIE_FILE");
+        if (die && *die && SDL_GetPathInfo(die, NULL)) _Exit(3);
         const char *error = NULL;
         int frames = 0, rate = 0, ms = 0;
         float *samples = r->blob ? eh_wav_floats(r->blob, r->blob_len, &frames, &rate, &error) : NULL;

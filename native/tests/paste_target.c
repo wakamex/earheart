@@ -5,6 +5,7 @@
 // when no paste arrived within the time given.
 //   paste-target TEXT [SECONDS]
 //   paste-target --hotkey          Windows: presses Ctrl+Shift+Space, the default record hotkey
+//   paste-target --repeat IN.wav N OUT.wav   writes IN's audio N times over, half a second apart
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <stdio.h>
@@ -36,8 +37,26 @@ static int press_hotkey(void) { return 2; }
 static void take_foreground(SDL_Window *window) { SDL_RaiseWindow(window); }
 #endif
 
+// A longer recording for the tests, from the one clip they have.
+static int repeat_wav(const char *in, int times, const char *out) {
+    size_t len;
+    Uint8 *wav = SDL_LoadFile(in, &len);
+    if (!wav || len < 44) return 1;
+    Uint32 data = (Uint32)(len - 44), gap = 16000, total = (data + gap) * (Uint32)times, riff = 36 + total;
+    SDL_IOStream *io = SDL_IOFromFile(out, "wb");
+    if (!io) return 1;
+    Uint8 head[44];
+    SDL_memcpy(head, wav, 44);
+    for (int i = 0; i < 4; i++) { head[4 + i] = (Uint8)(riff >> (8 * i)); head[40 + i] = (Uint8)(total >> (8 * i)); }
+    Uint8 *silence = SDL_calloc(1, gap);
+    bool ok = SDL_WriteIO(io, head, 44) == 44;
+    for (int i = 0; ok && i < times; i++) ok = SDL_WriteIO(io, wav + 44, data) == data && SDL_WriteIO(io, silence, gap) == gap;
+    return SDL_CloseIO(io) && ok ? 0 : 1;
+}
+
 int main(int argc, char **argv) {
     if (argc > 1 && !SDL_strcmp(argv[1], "--hotkey")) return press_hotkey();
+    if (argc > 4 && !SDL_strcmp(argv[1], "--repeat")) return repeat_wav(argv[2], SDL_atoi(argv[3]), argv[4]);
     const char *original = argc > 1 ? argv[1] : "the user's own clipboard";
     Uint64 deadline = SDL_GetTicks() + (Uint64)(argc > 2 ? SDL_atoi(argv[2]) : 120) * 1000, pasted_at = 0;
     if (!SDL_Init(SDL_INIT_VIDEO)) { fprintf(stderr, "paste-target: %s\n", SDL_GetError()); return 2; }

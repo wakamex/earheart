@@ -5,10 +5,12 @@
 // JSON line when asked and one result line per run.
 //
 //   earheart dictate --wav FILE [--talk SECONDS] [--runs N] [--events] [--data DIR]
-//                    [--set PATH=JSON]... [--pause-at S --resume-at S]
+//                    [--set PATH=JSON]... [--pause-at S --resume-at S] [--kill-stt-at-stop]
 // --talk stops the dictation that long after the microphone went live (default: the file's
 // length). --set changes a setting for the run, for example --set cleanup.enabled=false.
 // --data names the folder for this run's settings and history (default: a fresh temporary one).
+// --kill-stt-at-stop makes the speech worker die on every decode from the stop on: what is
+// delivered then is what the live preview had already decoded, marked incomplete.
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include "app.h"
@@ -82,6 +84,7 @@ int eh_cmd_dictate(int argc, char **argv) {
     const char *wav_path = NULL, *data = NULL, *sets[32];
     double talk = 0, pause_at = 0, resume_at = 0;
     int runs = 1, set_count = 0;
+    bool kill_stt = false;
     for (int i = 0; i < argc; i++) {
         bool more = i + 1 < argc;
         if (!SDL_strcmp(argv[i], "--wav") && more) wav_path = argv[++i];
@@ -92,6 +95,7 @@ int eh_cmd_dictate(int argc, char **argv) {
         else if (!SDL_strcmp(argv[i], "--resume-at") && more) resume_at = SDL_atof(argv[++i]);
         else if (!SDL_strcmp(argv[i], "--set") && more && set_count < 32) sets[set_count++] = argv[++i];
         else if (!SDL_strcmp(argv[i], "--events")) D.events = true;
+        else if (!SDL_strcmp(argv[i], "--kill-stt-at-stop")) kill_stt = true;
         else return usage();
     }
     if (!wav_path) return usage();
@@ -107,6 +111,11 @@ int eh_cmd_dictate(int argc, char **argv) {
         data = temp;
     }
     D.started = SDL_GetTicks();
+    char die_file[1300];
+    SDL_snprintf(die_file, sizeof die_file, "%s" EH_SEP "stt-dies", data);
+    SDL_CreateDirectory(data);
+    SDL_RemovePath(die_file);
+    if (kill_stt) SDL_setenv_unsafe("EARHEART_TEST_STT_DIE_FILE", die_file, 1);  // the workers inherit it
     eh_app_init(data, observer, deliver);
     eh_lock();
     char error[256];
@@ -146,7 +155,11 @@ int eh_cmd_dictate(int argc, char **argv) {
             if (live && pause_at > 0 && !paused && spoken >= pause_at) { paused = true; eh_pipeline_pause_toggle(); }
             if (paused && !resumed && spoken >= resume_at) { resumed = true; eh_pipeline_pause_toggle(); }
             // The stop: the record hotkey again, once the talking is done.
-            if (live && !D.stop_at && eh_recorder_seconds() >= talk) { D.stop_at = now; eh_pipeline_toggle(); }
+            if (live && !D.stop_at && eh_recorder_seconds() >= talk) {
+                if (kill_stt) SDL_CloseIO(SDL_IOFromFile(die_file, "w"));
+                D.stop_at = now;
+                eh_pipeline_toggle();
+            }
             bool over = D.finished && eh_pipeline_state() == EH_IDLE;
             eh_unlock();
             if (over) break;

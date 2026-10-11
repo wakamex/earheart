@@ -64,5 +64,15 @@ run "$bin/earheart --toggle" "second instance" 2
 kill $app
 wait $app 2>/dev/null
 [ "$(grep -c '"text"' "$EARHEART_DATA/history.json")" = 2 ] || fail "history does not hold both dictations"
+# The speech engine dying at the stop: the words the live preview had decoded are still delivered,
+# marked incomplete, with a notice. Three times the clip, so a chunk has committed by the stop.
+long=$EARHEART_DATA/long.wav
+"$bin/paste-target" --repeat "$wav" 3 "$long" || fail "could not build the long recording"
+crash=$("$bin/earheart" dictate --wav "$long" --data "$EARHEART_DATA/crash" --kill-stt-at-stop \
+    --set 'cleanup.enabled=false' --set "stt.builtin.model=\"${EARHEART_STT_MODEL:-parakeet-tdt-0.6b-v3-int8}\"" 2>/dev/null | tail -1)
+echo "engine killed at the stop: $crash" | cut -c1-260
+case "$crash" in *'"outcome":"done"'*'"incomplete":true'*) ;; *) fail "the recovered words were not delivered as an incomplete dictation" ;; esac
+case "$crash" in *"communication channels"*) ;; *) fail "the delivered text is not the words decoded before the engine died" ;; esac
+case "$crash" in *'"notices":0'*) fail "no notice of the interrupted transcription" ;; esac
 rm -rf "$EARHEART_DATA"
 echo "e2e: ok"
