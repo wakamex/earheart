@@ -268,10 +268,12 @@ Prompt tokens for Qwen3 4B, Gemma 3 1B, Gemma 3 4B and Granite 4.0 Micro are ide
 | macOS | Qwen3 4B | Metal | 5.56 | 5.40 |
 | Windows | Gemma 3 1B | CPU, 8 threads | 8.42 | 5.21 |
 | Windows | Gemma 3 1B | Vulkan | 1.08 | 1.00 |
+| Windows | Qwen3 4B | CPU, 8 threads | 32.27 | 27.94 |
+| Windows | Qwen3 4B | Vulkan | 1.88 | 1.79 |
 
 On the Windows CPU the native build is 1.6 times faster. llama.cpp's own release holds a CPU backend per processor generation and picks one at run time; `node-llama-cpp`'s Windows package is one generic build.
 
-Quality by the benchmark's scoring, macOS, Qwen3 4B, the shipped default: no fillers left, no fidelity failures and no runaway replies in either build; median content-word retention 0.94 in both for FLUENT in the default style (the figure `docs/cleanup-models.md` records), 0.90 in both for the polished style, 0.97 in both for REPORTED.
+Quality by the benchmark's scoring, Qwen3 4B, the shipped default, on macOS and on Windows: no fillers left, no fidelity failures and no runaway replies in either build; median content-word retention 0.94 in both for FLUENT in the default style (the figure `docs/cleanup-models.md` records). On macOS the polished style gives 0.90 in both and REPORTED 0.97 in both; on Windows the polished style gives 0.92 in the Electron build and 0.90 in the native one, and REPORTED 0.93 and 0.97.
 
 With the same seed the two builds write byte-identical text in 9 of 10 cleans on Metal. On the CPU 16 of 40 are identical: the CPU backends are different builds whose sums round differently, and one different token changes what follows. Gemma 3 1B is the more sensitive: its FLUENT/polished retention is 0.86 in the Electron build and 0.77 in the native one over five seeds, with the same count of fidelity failures.
 
@@ -282,4 +284,4 @@ With the same seed the two builds write byte-identical text in 9 of 10 cleans on
 - Chat templates: written out per family and token-identical for the catalogue.
 - GPU: Metal on the Mac and Vulkan on Windows in both builds. The Linux reference machine has no Vulkan driver, so the native build cleans on its CPU there, where the Electron build uses CUDA.
 
-Not yet measured: Qwen3 4B on Windows (in progress when this was written), and Chromium's microphone processing against SDL's raw audio, which belongs to M2.
+Chromium's microphone processing against SDL's raw audio belongs to M2.
