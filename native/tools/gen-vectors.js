@@ -221,6 +221,54 @@ function tailPairs() {
   console.log(`text.json: ${strip.length} texts (${strip.filter((r) => r[0] !== r[3]).length} changed), ${tails.length} tail pairs (${tails.filter((r) => r[2]).length} with a tail)`);
 }
 
+/* ---------------- settings ---------------- */
+
+{
+  const settings = require("../../main/settings");
+  const { resolveCleanup } = require("../../main/cleanup-styles");
+  const D = settings.DEFAULTS;
+  // main/settings.js keeps its limits private; these are its two.
+  const clampLimits = (m) => {
+    for (const [section, key, min, max] of [["audio", "maxRecordingSeconds", 10, 3600], ["engines", "idleUnloadMinutes", 0, 240]]) {
+      const v = m[section][key];
+      m[section][key] = Number.isFinite(v) ? Math.round(Math.min(max, Math.max(min, v))) : D[section][key];
+    }
+    return m;
+  };
+  const wrapped = D.cleanup.systemPrompt.replace(/(.{60,76}) /g, "$1\n  ");
+  const stored = [
+    {},
+    { hotkey: "Alt+D", output: { mode: "clipboard" } },
+    { hotkey: 5, startOnBoot: "yes", output: "paste", stt: [], history: { limit: "many", enabled: false } },
+    { stt: { baseUrl: "http://x/v1" } },
+    { stt: { engine: "server", livePreview: { chunkSeconds: 5 } }, sttServer: { port: 1 } },
+    { stt: { engine: "builtin", livePreview: { chunkSeconds: 7, enabled: false } } },
+    { cleanup: { model: "m" } },
+    { cleanup: { engine: "builtin", timeoutMs: 60000, temperature: 0.7 } },
+    { cleanup: { engine: "builtin", style: "polished", temperature: 0.7 } },
+    { cleanup: { engine: "builtin", systemPrompt: wrapped } },
+    { cleanup: { engine: "builtin", systemPrompt: wrapped + " changed" } },
+    { cleanup: { engine: "builtin", dictionary: ["Earheart", " gesso "], custom: { temperature: 1 } } },
+    { cleanup: { engine: "builtin", dictionary: "none" } },
+    { audio: { maxRecordingSeconds: 5 }, engines: { idleUnloadMinutes: 999 } },
+    { audio: { maxRecordingSeconds: 90.6 }, engines: { idleUnloadMinutes: -3 } },
+    { audio: { maxRecordingSeconds: null }, engines: { idleUnloadMinutes: "2" } },
+    { overlay: { x: 10, y: 20 }, customModels: [{ id: "c1", kind: "stt" }], unknownKey: { kept: true } },
+    { updates: { skippedVersion: "0.40.0", extra: 1 }, history: null },
+  ].map((input) => ({ input, merged: clampLimits(settings.deepMerge(D, settings.migrateLegacy(JSON.parse(JSON.stringify(input))))) }));
+  const cleanups = [
+    D.cleanup,
+    { ...D.cleanup, style: "verbatim" },
+    { ...D.cleanup, style: "polished", dictionary: ["Earheart", "  ", " gesso ", 42] },
+    { ...D.cleanup, style: "no-such-style" },
+    { ...D.cleanup, style: "custom", custom: { temperature: 0.7, topP: 1, topK: 0, minP: 0 } },
+    { ...D.cleanup, style: "custom", custom: {}, systemPrompt: "", dictionary: ["x"] },
+    { style: "clean" },
+  ].map((input) => ({ input, ...resolveCleanup(input) }));
+  fs.writeFileSync(path.join(__dirname, "../tests/vectors/settings.json"), JSON.stringify({ stored, cleanups }) + "\n");
+  console.log(`settings.json: ${stored.length} stored files, ${cleanups.length} cleanup sections`);
+}
+
 /* ---------------- chunked decode ---------------- */
 
 // The PCM of a WAV as one number, exact in both languages.

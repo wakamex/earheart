@@ -3,3 +3,4 @@ zig-out/
 zig-pkg/
 # Engine libraries fetched by tools/fetch-engines.sh
 engines/
+compile_flags.txt
