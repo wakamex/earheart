@@ -6,6 +6,7 @@
 #include "engine.h"
 #include "loop.h"
 #include "paths.h"
+#include "remote.h"
 #include "settings.h"
 #include "text.h"
 
@@ -178,8 +179,11 @@ bool eh_ensure_stt(const char *model_id, char *error, size_t error_size) {
 eh_decode_code eh_transcribe(const eh_jv *stt, const eh_signal *signal, const uint8_t *wav, size_t len, char **text, int *decode_ms, char *error, size_t error_size) {
     if (eh_signal_aborted(signal)) { SDL_strlcpy(error, "aborted", error_size); return EH_DECODE_FAILED; }
     if (SDL_strcmp(eh_jv_string(eh_jv_get(stt, "engine"), ""), "builtin")) {
-        SDL_strlcpy(error, "Remote speech-to-text is not part of this build yet", error_size);
-        return EH_DECODE_FAILED;
+        // A remote service: one upload. The settings are copied, since they may change while it waits.
+        eh_jv *cfg = eh_jv_clone(stt);
+        EH_AWAIT(*text = eh_remote_transcribe(wav, len, cfg, (eh_signal *)signal, error, error_size));
+        eh_jv_free(cfg);
+        return *text ? EH_DECODE_OK : EH_DECODE_FAILED;
     }
     if (!eh_ensure_stt(eh_jv_string(eh_jv_path(stt, "builtin.model"), ""), error, error_size)) return EH_DECODE_FAILED;
     eh_jw w;
@@ -256,9 +260,21 @@ void eh_prime_cleanup(const eh_jv *cleanup, const char *transcript_prefix) {
 
 char *eh_clean(const char *transcript, const eh_jv *cleanup, eh_signal *signal, eh_fraction_fn *progress, void *user, char *error, size_t error_size) {
     if (eh_signal_aborted(signal)) { SDL_strlcpy(error, "aborted", error_size); return NULL; }
+    const char *style_name = eh_jv_string(eh_jv_get(cleanup, "style"), "");
+    bool tidied_style = !SDL_strcmp(style_name, "clean") || !SDL_strcmp(style_name, "polished");
     if (SDL_strcmp(eh_jv_string(eh_jv_get(cleanup, "engine"), ""), "builtin")) {
-        SDL_strlcpy(error, "Remote cleanup is not part of this build yet", error_size);
-        return NULL;
+        eh_jv *cfg = eh_jv_clone(cleanup);
+        char *cleaned;
+        EH_AWAIT(cleaned = eh_remote_clean(transcript, cfg, signal, error, error_size));
+        eh_jv_free(cfg);
+        if (cleaned && eh_signal_aborted(signal)) {
+            SDL_free(cleaned);
+            SDL_strlcpy(error, "aborted", error_size);
+            return NULL;
+        }
+        char *out = cleaned && tidied_style ? eh_strip_stumbles(cleaned) : cleaned;
+        if (out != cleaned) SDL_free(cleaned);
+        return out;
     }
     eh_jw w;
     eh_jw_begin(&w);

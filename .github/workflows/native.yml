@@ -45,6 +45,9 @@ jobs:
       # engine library.
       - name: Check that the app starts and the engines load
         run: SDL_VIDEODRIVER=${{ runner.os == 'Linux' && 'dummy' || '' }} SDL_AUDIODRIVER=dummy zig-out/bin/earheart --smoke-test --engine-check
+      # The remote engines against a stand-in for an OpenAI-compatible service.
+      - name: Dictate through a remote service
+        run: tests/remote.sh
       # One dictation as a user makes it: hotkey, a recording as the microphone, hotkey, and the
       # text in a focused window. Needs the small speech model.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
