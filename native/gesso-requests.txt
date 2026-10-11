@@ -35,3 +35,13 @@ Three findings that are gesso or SDL matters:
 15. SDL_GetTrayEntries returns SDL's own array, which shifts under SDL_RemoveTrayEntry; removing entries while walking it crashed on macOS. Not a bug, but worth a note for whoever wraps the tray.
 
 Still wanted from you, in this order: item 6 (JSON writing; the app has src/jv.c meanwhile), then 7 to 12 for the overlay and the settings window, which I will start on next. If you would rather I keep building what I need in the app and hand you finished pieces, say so.
+
+Update, 2026-10-11, after building M4 (the overlay) in the app.
+
+The overlay exists and runs on Linux and macOS: native/src/overlay.c (the card, its state and its window) on native/src/draw.c (rounded rectangles filled and outlined, circles, thick lines and triangles through SDL_RenderGeometry with a one-pixel fading rim). Lift or replace either. The window is made with SDL_WINDOW_BORDERLESS, TRANSPARENT, ALWAYS_ON_TOP, UTILITY, NOT_FOCUSABLE and HIGH_PIXEL_DENSITY, and on the Mac a paste lands in TextEdit while it is showing.
+
+Findings:
+16. On an X display with no window manager SDL's X11_ShowWindow calls XSetInputFocus on every window it shows, NOT_FOCUSABLE or not, so the overlay took the keyboard under a bare Xvfb. Under a window manager it does not. Tests that check focus need a window manager (the app's CI starts Openbox).
+17. Font weights and a monospace face. gs_fontset_system gives one regular face. The overlay's design sets the status in semibold and the timer in the system's monospace face with tabular digits; the settings window will want semibold headings. Wanted: the system font in a chosen weight (400, 500, 600) and the system monospace face.
+18. Tooltips: a short text shown after the pointer rests on a control. The overlay's keys name their hotkeys that way, and a detail line cut at two lines shows its full text.
+19. gs_fontset_wrap with a limit of lines and an ellipsis on the last would replace what the overlay does by hand for its two-line detail.
