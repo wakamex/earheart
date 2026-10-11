@@ -1,0 +1,13 @@
+.{
+    .name = .earheart,
+    .version = "0.39.0",
+    .fingerprint = 0x30ccaed686dcf630,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .gesso = .{
+            .url = "git+https://github.com/wakamex/gesso.git#d1c82f58f156b8e5cc3e60a801cb24af16571e40",
+            .hash = "gesso-0.0.0-LFvUrxI6PwByi-fRfArdLuZSYc6WetsqtFfjHTPbvxzG",
+        },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src", "tests", "tools", "vendor" },
+}

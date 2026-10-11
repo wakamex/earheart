@@ -1,0 +1,5 @@
+zig-out/
+.zig-cache/
+zig-pkg/
+# Engine libraries fetched by tools/fetch-engines.sh
+engines/
