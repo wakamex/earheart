@@ -55,3 +55,30 @@ void eh_engines_prepare(const char *dir) {
     (void)dir;
 #endif
 }
+
+const char *eh_data_dir(void) {
+    static char dir[2048];
+    if (dir[0]) return dir;
+    const char *env = SDL_getenv("EARHEART_DATA");
+    char *pref = env && *env ? NULL : SDL_GetPrefPath(NULL, "earheart-native");
+    SDL_strlcpy(dir, pref ? pref : env && *env ? env : ".", sizeof dir);
+    SDL_free(pref);
+    size_t n = SDL_strlen(dir);
+    if (n > 1 && (dir[n - 1] == '/' || dir[n - 1] == '\\')) dir[n - 1] = 0;
+    return dir;
+}
+
+const char *eh_electron_dir(void) {
+    static char dir[2048];
+    if (dir[0]) return dir;
+#ifdef _WIN32
+    SDL_snprintf(dir, sizeof dir, "%s\\Earheart", SDL_getenv("APPDATA") ? SDL_getenv("APPDATA") : ".");
+#elif defined(__APPLE__)
+    SDL_snprintf(dir, sizeof dir, "%s/Library/Application Support/Earheart", SDL_getenv("HOME") ? SDL_getenv("HOME") : ".");
+#else
+    const char *config = SDL_getenv("XDG_CONFIG_HOME");
+    if (config && *config) SDL_snprintf(dir, sizeof dir, "%s/Earheart", config);
+    else SDL_snprintf(dir, sizeof dir, "%s/.config/Earheart", SDL_getenv("HOME") ? SDL_getenv("HOME") : ".");
+#endif
+    return dir;
+}

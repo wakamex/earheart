@@ -3,6 +3,7 @@
 // size and SHA-256.
 #pragma once
 #include <stdbool.h>
+#include <stddef.h>
 #include "stt.h"
 
 typedef enum { EH_MODEL_STT, EH_MODEL_CLEANUP } eh_model_kind;
@@ -22,3 +23,15 @@ extern const int eh_catalog_count;
 
 const eh_model *eh_catalog_find(eh_model_kind kind, const char *id);  // id NULL: the kind's default
 const char *eh_model_kind_dir(eh_model_kind kind);                    // "stt" or "cleanup", the folder under models/
+
+// Where models are looked for: this build's own folder first, where downloads go, then any others,
+// such as the Electron build's, whose models are used in place.
+void eh_models_set_dirs(const char *const *dirs, int count);
+const char *eh_models_own_dir(void);
+// The folder of an installed copy of the model: one with a completion marker whose recorded sizes
+// match the files on disk and whose fingerprint, when it has one, matches this definition. False
+// when no folder holds one.
+bool eh_model_installed(const eh_model *m, char *dir, size_t dir_size);
+// The identity of a definition's files, as main/engines/model-manager.js computes it: the SHA-256
+// of the JSON list of each file's name and checksum, in name order. `hex` gets 65 bytes.
+void eh_model_fingerprint(const eh_model *m, char hex[65]);

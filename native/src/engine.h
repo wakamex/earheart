@@ -52,5 +52,12 @@ typedef void eh_engine_progress(void *user, float fraction);
 eh_engine_status eh_engine_call(eh_engine *e, eh_jw *request, const void *blob, size_t blob_len, int timeout_ms,
                                 eh_engine_progress *progress, void *user, eh_engine_reply *reply);
 
+// The same with the request's place among the others taken beforehand: requests reach the worker
+// in the order of eh_engine_reserve calls, whichever thread gets to send first. Every place
+// reserved must be used.
+unsigned eh_engine_reserve(eh_engine *e);
+eh_engine_status eh_engine_call_at(eh_engine *e, unsigned place, eh_jw *request, const void *blob, size_t blob_len, int timeout_ms,
+                                   eh_engine_progress *progress, void *user, eh_engine_reply *reply);
+
 // The worker's side: serves requests until its input closes. Returns the process's exit code.
 int eh_worker_main(const char *kind);

@@ -5,6 +5,7 @@
 typedef struct call {
     unsigned id;
     bool done;
+    int reporting;      // progress callbacks running now; the caller does not return under them
     Uint64 last_heard;  // when it was sent or last reported progress
     eh_engine_progress *progress;
     void *user;
@@ -24,6 +25,9 @@ struct eh_engine {
     SDL_AtomicInt quit;
     call *calls;            // sent and not yet answered
     unsigned next_id, generation;
+    SDL_Mutex *order_lock;  // places in the queue to send
+    SDL_Condition *order_changed;
+    unsigned next_place, sending;
 };
 
 static void put_le32(Uint8 *p, Uint32 v) { p[0] = (Uint8)v; p[1] = (Uint8)(v >> 8); p[2] = (Uint8)(v >> 16); p[3] = (Uint8)(v >> 24); }
@@ -101,7 +105,15 @@ static int reader_main(void *user) {
                 // Proof the worker is alive: the caller's deadline starts again.
                 if (c && gs_json_kind(progress) == GS_JSON_NUMBER) {
                     c->last_heard = SDL_GetTicks();
-                    if (c->progress) c->progress(c->user, (float)gs_json_num(progress, 0));
+                    if (c->progress) {
+                        // Called without the lock, so the callback may take locks of its own.
+                        c->reporting++;
+                        SDL_UnlockMutex(e->lock);
+                        c->progress(c->user, (float)gs_json_num(progress, 0));
+                        SDL_LockMutex(e->lock);
+                        c->reporting--;
+                        SDL_BroadcastCondition(e->answered);
+                    }
                 }
                 gs_json_free(doc);
             } else {
@@ -130,6 +142,8 @@ eh_engine *eh_engine_new(const char *kind) {
     e->write_lock = SDL_CreateMutex();
     e->answered = SDL_CreateCondition();
     e->wake = SDL_CreateSemaphore(0);
+    e->order_lock = SDL_CreateMutex();
+    e->order_changed = SDL_CreateCondition();
     return e;
 }
 
@@ -190,6 +204,8 @@ void eh_engine_free(eh_engine *e) {
     SDL_DestroyMutex(e->write_lock);
     SDL_DestroyCondition(e->answered);
     SDL_DestroySemaphore(e->wake);
+    SDL_DestroyMutex(e->order_lock);
+    SDL_DestroyCondition(e->order_changed);
     SDL_free(e);
 }
 
@@ -211,9 +227,24 @@ static bool start(eh_engine *e) {
     return true;
 }
 
+unsigned eh_engine_reserve(eh_engine *e) {
+    SDL_LockMutex(e->order_lock);
+    unsigned place = e->next_place++;
+    SDL_UnlockMutex(e->order_lock);
+    return place;
+}
+
 eh_engine_status eh_engine_call(eh_engine *e, eh_jw *request, const void *blob, size_t blob_len, int timeout_ms,
                                 eh_engine_progress *progress, void *user, eh_engine_reply *reply) {
+    return eh_engine_call_at(e, eh_engine_reserve(e), request, blob, blob_len, timeout_ms, progress, user, reply);
+}
+
+eh_engine_status eh_engine_call_at(eh_engine *e, unsigned place, eh_jw *request, const void *blob, size_t blob_len, int timeout_ms,
+                                   eh_engine_progress *progress, void *user, eh_engine_reply *reply) {
     *reply = (eh_engine_reply){ .status = EH_ENGINE_EXITED };
+    SDL_LockMutex(e->order_lock);
+    while (e->sending != place) SDL_WaitCondition(e->order_changed, e->order_lock);
+    SDL_UnlockMutex(e->order_lock);
     if (timeout_ms <= 0) timeout_ms = EH_ENGINE_TIMEOUT_MS;
     call c = { .progress = progress, .user = user, .reply = reply };
 
@@ -236,6 +267,10 @@ eh_engine_status eh_engine_call(eh_engine *e, eh_jw *request, const void *blob, 
     if (ok) SDL_SignalSemaphore(e->wake);
     else stop(e);  // it would not start or take the request: everything waiting is answered
     SDL_UnlockMutex(e->write_lock);
+    SDL_LockMutex(e->order_lock);
+    e->sending++;
+    SDL_BroadcastCondition(e->order_changed);
+    SDL_UnlockMutex(e->order_lock);
 
     SDL_LockMutex(e->lock);
     bool timed_out = false;
@@ -246,6 +281,7 @@ eh_engine_status eh_engine_call(eh_engine *e, eh_jw *request, const void *blob, 
     }
     for (call **at = &e->calls; *at; at = &(*at)->next)
         if (*at == &c) { *at = c.next; break; }
+    while (c.reporting) SDL_WaitCondition(e->answered, e->lock);
     SDL_UnlockMutex(e->lock);
     if (timed_out) {
         // Silence this long is a native call that never returns, and every later request would
