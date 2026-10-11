@@ -154,13 +154,14 @@ void eh_cancel(unsigned id) {
     SDL_UnlockMutex(L.timers_lock);
 }
 
+bool eh_loop_busy(void) {
+    SDL_LockMutex(L.timers_lock);
+    bool pending = false;
+    for (timer *t = L.timers; t; t = t->next) pending = pending || !t->every;
+    SDL_UnlockMutex(L.timers_lock);
+    return pending || SDL_GetAtomicInt(&L.running);
+}
+
 void eh_loop_drain(void) {
-    for (;;) {
-        SDL_LockMutex(L.timers_lock);
-        bool pending = false;
-        for (timer *t = L.timers; t; t = t->next) pending = pending || !t->every;
-        SDL_UnlockMutex(L.timers_lock);
-        if (!pending && !SDL_GetAtomicInt(&L.running)) return;
-        SDL_Delay(5);
-    }
+    while (eh_loop_busy()) SDL_Delay(5);
 }

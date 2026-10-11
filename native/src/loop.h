@@ -25,3 +25,4 @@ void eh_cancel(unsigned timer);
 // Waits until every task spawned has finished and no one-shot timer is pending; for tests and for
 // quitting. Call without the lock.
 void eh_loop_drain(void);
+bool eh_loop_busy(void);  // what drain waits for, for a caller with events of its own to pump meanwhile

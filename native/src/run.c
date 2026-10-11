@@ -287,8 +287,12 @@ int eh_run(int argc, char **argv) {
     int status = 0;
     if (smoke) {
         // Everything is started; the queue is emptied once, then the engines are checked when asked.
-        for (SDL_Event e; SDL_PollEvent(&e);) {}
-        eh_loop_drain();
+        // Events are pumped while the tasks finish: on macOS registering a hotkey waits for this
+        // thread to run it.
+        while (eh_loop_busy()) {
+            for (SDL_Event e; SDL_PollEvent(&e);) {}
+            SDL_Delay(5);
+        }
         if (check && !engine_check()) status = 1;
     } else {
         // The overlay says when it wants its next frame; until then the loop sleeps on events.
