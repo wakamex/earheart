@@ -23,6 +23,7 @@
 #include "settings.h"
 #include "ui.h"
 #include "wav.h"
+#include "wizard_window.h"
 
 enum { SEC_GENERAL, SEC_LIVE, SEC_STT, SEC_CLEANUP, SEC_HISTORY, SEC_ADVANCED, SECTIONS };
 static const char *const section_names[SECTIONS] = { "General", "Live transcript", "Speech-to-text", "Cleanup", "History", "Advanced" };
@@ -51,7 +52,7 @@ static struct {
     bool spy_held;                   // a jump is gliding: the index keeps the entry chosen
     float section_y[SECTIONS], content_h, card_h[24], view_top, view_bottom;
     int card;
-    bool wizard_banner;
+    bool wizard_banner, open_wizard;
     // General.
     char hotkeys[4][64];
     status hotkey_status[4];
@@ -959,6 +960,13 @@ static void advanced(void) {
     hint("Unload models after idle — built-in models stay in memory for fast repeat dictations, then unload after this many idle minutes to free memory (~1.5 GB or more); 0 keeps them loaded for the whole session. The next dictation reloads them in a few seconds, usually hidden while you're still speaking. Only affects in-app models, not external services. 0–240 minutes; a value outside that is saved as the nearest limit, and a blank means 0.");
     card_end();
 
+    card_begin("Setup wizard");
+    x = pg.x;
+    if (button_at(&x, pg.y, "open-wizard", "Run the setup wizard again…", EH_BTN_PLAIN)) W.open_wizard = true;
+    pg.y += 34;
+    hint("Walks through hotkey, microphone, speech-to-text and cleanup from scratch. Nothing changes until you finish the wizard.");
+    card_end();
+
     card_begin("About");
     text("Earheart v" EARHEART_VERSION " — private, hotkey-driven voice dictation. Free and open source (MIT).", 13, eh_rgba(EH_TEXT, 1));
     pg.y += 12;
@@ -1002,7 +1010,7 @@ void eh_settings_window_open(const char *section) {
         W.base = eh_jv_clone(eh_settings());
         populate();
         W.save.tone = ST_NONE;
-        W.saving = W.close_when_saved = false;
+        W.saving = W.close_when_saved = W.wizard_banner = false;
         for (int i = 0; i < 4; i++) {
             // A failure is shown while the field still holds the key it was about.
             eh_hotkey_result r = eh_hotkeys_status(i);
@@ -1016,6 +1024,13 @@ void eh_settings_window_open(const char *section) {
         if (!SDL_strcmp(section, section_ids[i])) W.section = i, eh_scroll_to(W.ui, SDL_max(0, W.section_y[i] - 12), false);
     SDL_ShowWindow(eh_ui_window(W.ui));
     SDL_RaiseWindow(eh_ui_window(W.ui));
+}
+
+void eh_settings_window_open_from_wizard(void) {
+    // Open already, it is filled again: the wizard just saved over what its draft was made from.
+    eh_settings_window_close();
+    eh_settings_window_open("general");
+    W.wizard_banner = W.ui != NULL;
 }
 
 bool eh_settings_window_is_open(void) { return W.ui != NULL; }
@@ -1066,6 +1081,16 @@ int eh_settings_window_frame(void) {
     W.view_top = area.y, W.view_bottom = area.y + area.h;
     float top = eh_scroll_begin(W.ui, area, W.content_h);
     pg.x = area.x + 24, pg.w = SDL_min(area.w - 48, 640), pg.y = top + 18;
+    if (W.wizard_banner) {
+        card_begin(NULL);
+        float w = pg.w, bw = eh_w_button_width(W.ui, "Dismiss"), banner_top = pg.y;
+        pg.w -= bw + 14;
+        text("Setup complete. These settings were pre-configured by the setup wizard — save them as they are, or adjust anything first.", 13, eh_rgba(EH_TEXT, 1));
+        pg.w = w;
+        if (eh_w_button(W.ui, (gs_rect){ pg.x + pg.w - bw, banner_top, bw, 34 }, "wizard-banner-dismiss", "Dismiss", EH_BTN_PLAIN)) W.wizard_banner = false;
+        pg.y = SDL_max(pg.y, banner_top + 34);
+        card_end();
+    }
     general();
     live();
     speech();
@@ -1123,6 +1148,10 @@ int eh_settings_window_frame(void) {
     if (eh_ui_capturing(W.ui) != was_capturing) eh_hotkeys_suspend(eh_ui_capturing(W.ui));
     int again = eh_ui_end(W.ui);
     eh_unlock();
+    if (W.open_wizard) {
+        W.open_wizard = false;
+        eh_wizard_window_open();
+    }
     return again;
 }
 

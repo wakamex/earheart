@@ -262,6 +262,13 @@ bool eh_ui_stop_rect(eh_ui *ui, const char *id, gs_rect *r) {
     return false;
 }
 
+bool eh_ui_stop_paged(eh_ui *ui, const char *id) {
+    Uint32 h = hash(id);
+    for (int i = 0; i < ui->count; i++)
+        if (ui->order[i].id == h) return ui->order[i].paged;
+    return false;
+}
+
 const char *eh_ui_focus_name(eh_ui *ui) {
     for (int i = 0; i < ui->count; i++)
         if (ui->order[i].id == ui->focus) return ui->order[i].name;

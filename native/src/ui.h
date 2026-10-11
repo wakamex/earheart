@@ -42,6 +42,7 @@ bool eh_ui_focused(eh_ui *ui, const char *id);
 int eh_ui_stops(eh_ui *ui);
 const char *eh_ui_stop_name(eh_ui *ui, int index);
 bool eh_ui_stop_rect(eh_ui *ui, const char *id, gs_rect *r);
+bool eh_ui_stop_paged(eh_ui *ui, const char *id);  // it is on the scrolling page
 const char *eh_ui_focus_name(eh_ui *ui);  // "" when nothing has the keyboard
 
 // The window's one scrolling page. `content_h` is the height the page turned out to have the last

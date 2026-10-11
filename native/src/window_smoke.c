@@ -1,7 +1,7 @@
-// `earheart settings-smoke [SETTINGS_VECTORS]`: the settings window driven as a user drives it,
-// with mouse, wheel and keyboard events given to the real window, and what it then shows and
-// saves checked. The checks are the settings window's own from scripts/settings-smoke.js. Needs a
-// display. Exits 1 when a check fails.
+// `earheart settings-smoke [SETTINGS_VECTORS]` and `earheart wizard-smoke`: a window driven as a
+// user drives it, with mouse, wheel and keyboard events given to the real window, and what it
+// then shows and saves checked. The checks are the windows' own from scripts/settings-smoke.js.
+// They need a display, and exit 1 when a check fails.
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include "app.h"
@@ -13,15 +13,24 @@
 #include "settings.h"
 #include "settings_window.h"
 #include "ui.h"
+#include "wizard_window.h"
 
 static int failed, checks;
 #define CHECK(cond) do { checks++; if (!(cond)) { printf("  FAILED %s:%d: %s\n", __FILE__, __LINE__, #cond); failed++; } } while (0)
 #define IS(what, expected) do { checks++; const char *got_ = eh_settings_window_text(what); if (SDL_strcmp(got_, expected)) { printf("  FAILED %s:%d: %s is \"%s\", expected \"%s\"\n", __FILE__, __LINE__, what, got_, expected); failed++; } } while (0)
 
-static eh_ui *ui(void) { return (eh_ui *)eh_settings_window_ui(); }
+// The window being driven.
+static struct {
+    bool (*event)(const SDL_Event *e);
+    int (*frame)(void);
+    struct eh_ui *(*ui)(void);
+    bool (*open)(void);
+} T;
+
+static eh_ui *ui(void) { return (eh_ui *)T.ui(); }
 
 static void frames(int n) {
-    for (int i = 0; i < n && eh_settings_window_is_open(); i++) eh_settings_window_frame();
+    for (int i = 0; i < n && T.open(); i++) T.frame();
 }
 
 static SDL_WindowID window(void) { return SDL_GetWindowID(eh_ui_window(ui())); }
@@ -30,40 +39,40 @@ static void pointer(Uint32 type, float x, float y) {
     SDL_Event e = { 0 };
     if (type == SDL_EVENT_MOUSE_MOTION) e.motion = (SDL_MouseMotionEvent){ .type = type, .windowID = window(), .x = x, .y = y };
     else e.button = (SDL_MouseButtonEvent){ .type = type, .windowID = window(), .button = SDL_BUTTON_LEFT, .down = type == SDL_EVENT_MOUSE_BUTTON_DOWN, .x = x, .y = y };
-    eh_settings_window_event(&e);
+    T.event(&e);
 }
 
 static void wheel(float x, float y, float amount) {
     pointer(SDL_EVENT_MOUSE_MOTION, x, y);
     SDL_Event e = { 0 };
     e.wheel = (SDL_MouseWheelEvent){ .type = SDL_EVENT_MOUSE_WHEEL, .windowID = window(), .y = amount, .mouse_x = x, .mouse_y = y };
-    eh_settings_window_event(&e);
+    T.event(&e);
     frames(2);
 }
 
 static void key(SDL_Scancode sc, SDL_Keycode k, SDL_Keymod mod) {
     SDL_Event e = { 0 };
     e.key = (SDL_KeyboardEvent){ .type = SDL_EVENT_KEY_DOWN, .windowID = window(), .scancode = sc, .key = k, .mod = mod, .down = true };
-    eh_settings_window_event(&e);
+    T.event(&e);
     frames(2);
 }
 
 static void type_text(const char *text) {
     SDL_Event e = { 0 };
     e.text = (SDL_TextInputEvent){ .type = SDL_EVENT_TEXT_INPUT, .windowID = window(), .text = text };
-    eh_settings_window_event(&e);
+    T.event(&e);
     frames(2);
 }
 
 // Scrolls the page until the control is whole inside it. False when the page has no such control.
 static bool reveal(const char *id, gs_rect *r) {
     int w, h;
-    if (!eh_settings_window_is_open()) return false;
+    if (!T.open()) return false;
     SDL_GetWindowSize(eh_ui_window(ui()), &w, &h);
     for (int tries = 0; tries < 200; tries++) {
         frames(1);
         if (!eh_ui_stop_rect(ui(), id, r)) return false;
-        if (!SDL_strncmp(id, "tab-", 4) || !SDL_strcmp(id, "save") || !SDL_strncmp(id, "ask-", 4)) return true;  // the index, the footer, a question: not on the page
+        if (!eh_ui_stop_paged(ui(), id)) return true;  // not on the page: always where it is
         if (r->y >= 80 && r->y + r->h <= (float)h - 72) return true;
         wheel((float)w - 200, (float)h / 2, r->y < 80 ? 1 : -1);
     }
@@ -80,19 +89,19 @@ static bool click(const char *id) {
     frames(1);
     pointer(SDL_EVENT_MOUSE_BUTTON_UP, x, y);
     frames(3);
-    if (SDL_getenv("EARHEART_SMOKE_VERBOSE")) printf("  clicked %s at %.0f,%.0f (rect %.0f,%.0f %.0fx%.0f); focus now \"%s\"\n", id, x, y, r.x, r.y, r.w, r.h, eh_settings_window_is_open() ? eh_ui_focus_name(ui()) : "(closed)");
+    if (SDL_getenv("EARHEART_SMOKE_VERBOSE")) printf("  clicked %s at %.0f,%.0f (rect %.0f,%.0f %.0fx%.0f); focus now \"%s\"\n", id, x, y, r.x, r.y, r.w, r.h, T.open() ? eh_ui_focus_name(ui()) : "(closed)");
     return true;
 }
 
 static bool has(const char *id) {
     gs_rect r;
     frames(1);
-    return eh_settings_window_is_open() && eh_ui_stop_rect(ui(), id, &r);
+    return T.open() && eh_ui_stop_rect(ui(), id, &r);
 }
 
 // Frames until the window says `what` is no longer `busy`, or five seconds pass.
 static void settle(const char *what, const char *busy) {
-    for (Uint64 until = SDL_GetTicks() + 5000; SDL_GetTicks() < until && eh_settings_window_is_open();) {
+    for (Uint64 until = SDL_GetTicks() + 5000; SDL_GetTicks() < until && T.open();) {
         frames(1);
         if (SDL_strcmp(eh_settings_window_text(what), busy)) return;
         SDL_Delay(10);
@@ -118,12 +127,14 @@ static char *setting_text(const char *path) {
     return v;
 }
 
-int eh_cmd_settings_smoke(int argc, char **argv) {
-    char data[1200];
+// The app with a folder of its own for its settings and a stand-in for the desktop's key grabs.
+static char data[1200];
+
+static bool begin(const char *name) {
     setvbuf(stdout, NULL, _IOLBF, 0);
-    SDL_snprintf(data, sizeof data, "%s" EH_SEP "settings-smoke-%llu", eh_data_dir(), (unsigned long long)SDL_GetTicksNS());
+    SDL_snprintf(data, sizeof data, "%s" EH_SEP "%s-%llu", eh_data_dir(), name, (unsigned long long)SDL_GetTicksNS());
     SDL_CreateDirectory(data);
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) { fprintf(stderr, "earheart: %s\n", SDL_GetError()); return 1; }
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) { fprintf(stderr, "earheart: %s\n", SDL_GetError()); return false; }
     SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0");
     eh_app_init(data, NULL, eh_deliver);
     static const eh_hotkey_backend fake = { fake_add, fake_remove };
@@ -131,11 +142,41 @@ int eh_cmd_settings_smoke(int argc, char **argv) {
     eh_hotkeys_backend(&fake);
     eh_hotkeys_apply(eh_settings(), NULL);
     eh_unlock();
+    return true;
+}
+
+static int end(const char *name, const char *extra) {
+    eh_lock();
+    eh_hotkeys_release_all();
+    eh_engines_stop();
+    eh_unlock();
+    // The folder the test made for its settings goes with it.
+    int count = 0;
+    char **names = SDL_GlobDirectory(data, NULL, 0, &count);
+    for (int i = 0; names && i < count; i++) {
+        char path[1500];
+        SDL_snprintf(path, sizeof path, "%s" EH_SEP "%s", data, names[i]);
+        SDL_RemovePath(path);
+    }
+    SDL_free(names);
+    SDL_RemovePath(data);
+    SDL_Quit();
+    printf("%s: %d checks, %d failed%s\n", name, checks, failed, extra);
+    return failed ? 1 : 0;
+}
+
+static void settings_target(void) {
+    T.event = eh_settings_window_event, T.frame = eh_settings_window_frame, T.ui = eh_settings_window_ui, T.open = eh_settings_window_is_open;
+}
+
+int eh_cmd_settings_smoke(int argc, char **argv) {
+    if (!begin("settings-smoke")) return 1;
+    settings_target();
 
     // The window opens on General with its six sections in the index, and an untouched draft is
     // the settings it was filled from.
     eh_settings_window_open(NULL);
-    if (!eh_settings_window_is_open()) { printf("no window: %s\n", SDL_GetError()); return 1; }
+    if (!T.open()) { printf("no window: %s\n", SDL_GetError()); return 1; }
     frames(4);
     IS("section", "general");
     static const char *const tabs[6] = { "tab-general", "tab-live", "tab-stt", "tab-cleanup", "tab-history", "tab-advanced" };
@@ -185,7 +226,7 @@ int eh_cmd_settings_smoke(int argc, char **argv) {
     // a key without a modifier does not, and Clear empties it.
     CHECK(click("pause-hotkey") && eh_ui_capturing(ui()));
     key(SDL_SCANCODE_ESCAPE, SDLK_ESCAPE, 0);
-    CHECK(!eh_ui_capturing(ui()) && eh_settings_window_is_open());
+    CHECK(!eh_ui_capturing(ui()) && T.open());
     IS("pause-hotkey", "");
     CHECK(click("pause-hotkey"));
     key(SDL_SCANCODE_K, SDLK_K, 0);
@@ -248,7 +289,7 @@ int eh_cmd_settings_smoke(int argc, char **argv) {
     CHECK(click("save"));
     settle("save", "Saving…");
     IS("save", "Saved — Max dictation length set to 3600 s (allowed 10–3600)");
-    CHECK(eh_settings_window_is_open() && setting("audio.maxRecordingSeconds") == 3600);
+    CHECK(T.open() && setting("audio.maxRecordingSeconds") == 3600);
     IS("max-seconds", "3600");
 
     // A hotkey another app holds: everything else is saved, the hotkey keeps its saved value, the
@@ -263,7 +304,7 @@ int eh_cmd_settings_smoke(int argc, char **argv) {
     settle("save", "Saving…");
     IS("save", "Saved, but the pause hotkey could not be registered");
     char *saved = setting_text("pauseHotkey");
-    CHECK(eh_settings_window_is_open() && !saved[0] && setting("audio.maxRecordingSeconds") == 120);
+    CHECK(T.open() && !saved[0] && setting("audio.maxRecordingSeconds") == 120);
     SDL_free(saved);
     IS("pause-hotkey", TAKEN);
     CHECK(SDL_strstr(eh_settings_window_text("pause-hotkey-status"), "Could not register \"Ctrl+Alt+T\"") != NULL);
@@ -273,8 +314,8 @@ int eh_cmd_settings_smoke(int argc, char **argv) {
     key(SDL_SCANCODE_P, SDLK_P, SDL_KMOD_LALT);
     IS("pause-hotkey-status", "");
     CHECK(click("save"));
-    for (Uint64 until = SDL_GetTicks() + 5000; SDL_GetTicks() < until && eh_settings_window_is_open();) frames(1), SDL_Delay(10);
-    CHECK(!eh_settings_window_is_open());
+    for (Uint64 until = SDL_GetTicks() + 5000; SDL_GetTicks() < until && T.open();) frames(1), SDL_Delay(10);
+    CHECK(!T.open());
     char *pause = setting_text("pauseHotkey");
     CHECK(!SDL_strcmp(pause, "Alt+P"));
     SDL_free(pause);
@@ -317,21 +358,94 @@ int eh_cmd_settings_smoke(int argc, char **argv) {
         SDL_free(text);
     }
 
-    eh_lock();
-    eh_hotkeys_release_all();
-    eh_engines_stop();
-    eh_unlock();
-    // The folder the test made for its settings goes with it.
-    int count = 0;
-    char **names = SDL_GlobDirectory(data, NULL, 0, &count);
-    for (int i = 0; names && i < count; i++) {
-        char path[1500];
-        SDL_snprintf(path, sizeof path, "%s" EH_SEP "%s", data, names[i]);
-        SDL_RemovePath(path);
+    char extra[64];
+    SDL_snprintf(extra, sizeof extra, ", %d stored settings files round-tripped", files);
+    return end("settings-smoke", extra);
+}
+
+/* ---------------- the wizard ---------------- */
+
+static void wizard_target(void) {
+    T.event = eh_wizard_window_event, T.frame = eh_wizard_window_frame, T.ui = eh_wizard_window_ui, T.open = eh_wizard_window_is_open;
+}
+
+int eh_cmd_wizard_smoke(int argc, char **argv) {
+    if (!begin("wizard-smoke")) return 1;
+    wizard_target();
+    eh_wizard_window_open();
+    if (!T.open()) { printf("no window: %s\n", SDL_GetError()); return 1; }
+    frames(4);
+
+    // Seven steps, forward and back; the first has no Back, and Skip is always there.
+    CHECK(eh_wizard_window_step() == 0 && has("next") && has("skip") && !has("back"));
+    for (int step = 1; step < 7; step++) {
+        CHECK(click("next"));
+        CHECK(eh_wizard_window_step() == step && has("back"));
     }
-    SDL_free(names);
-    SDL_RemovePath(data);
-    SDL_Quit();
-    printf("settings-smoke: %d checks, %d failed, %d stored settings files round-tripped\n", checks, failed, files);
-    return failed ? 1 : 0;
+    for (int step = 5; step >= 1; step--) {
+        CHECK(click("back"));
+        CHECK(eh_wizard_window_step() == step);
+    }
+
+    // The hotkey step: capture, and Reset back to the default.
+    CHECK(has("hotkey") && has("hotkey-clear"));
+    CHECK(click("hotkey"));
+    CHECK(eh_ui_capturing(ui()));
+    key(SDL_SCANCODE_T, SDLK_T, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
+    CHECK(!eh_ui_capturing(ui()));
+    CHECK(click("next") && has("mic-device"));
+    CHECK(click("next"));
+    // Cleanup: off puts its choices out of reach.
+    CHECK(click("next") && has("cleanup-enabled") && has("cleanup-builtin-model") && has("cleanup-style"));
+    CHECK(click("cleanup-enabled"));
+    CHECK(!has("cleanup-builtin-model") && !has("cleanup-style"));
+    CHECK(click("cleanup-enabled") && has("cleanup-builtin-model"));
+    CHECK(click("cleanup-enabled"));
+    // Output, with the summary.
+    CHECK(click("next") && has("output-paste") && has("output-clipboard"));
+    CHECK(click("output-clipboard"));
+    // The last step: with cleanup off only the speech model is wanted. Its download is put off,
+    // which lets the wizard finish.
+    CHECK(click("next") && eh_wizard_window_step() == 6);
+    if (has("download-later")) CHECK(click("download-later"));
+    CHECK(!has("download-later"));
+#ifndef __APPLE__
+    // The hotkey chosen is another app's: nothing closes, and the hotkey step says why.
+    CHECK(click("next"));
+    for (Uint64 until = SDL_GetTicks() + 5000; SDL_GetTicks() < until && eh_wizard_window_step() == 6;) frames(1), SDL_Delay(10);
+    CHECK(T.open() && eh_wizard_window_step() == 1 && !eh_settings_window_is_open());
+    char *mode = setting_text("output.mode");
+    CHECK(!SDL_strcmp(mode, "clipboard") && !setting_text("cleanup.enabled")[0]);
+    SDL_free(mode);
+#else
+    for (int step = 5; step >= 1; step--) click("back");
+#endif
+    // Corrected, it finishes: the choices are saved, the wizard closes and the settings open with
+    // a line saying where their values came from.
+    CHECK(click("hotkey-clear"));
+    for (int step = 2; step < 7; step++) CHECK(click("next"));
+    if (has("download-later")) CHECK(click("download-later"));
+    CHECK(click("next"));
+    for (Uint64 until = SDL_GetTicks() + 5000; SDL_GetTicks() < until && T.open();) frames(1), SDL_Delay(10);
+    CHECK(!T.open() && eh_settings_window_is_open());
+    eh_lock();
+    CHECK(!eh_setting_bool("cleanup.enabled") && !SDL_strcmp(eh_setting_str("stt.engine"), "builtin") && !SDL_strcmp(eh_setting_str("output.mode"), "clipboard"));
+    CHECK(!SDL_strcmp(eh_setting_str("hotkey"), "CommandOrControl+Shift+Space") && eh_hotkeys_status(EH_HK_RECORD).ok);
+    eh_unlock();
+    settings_target();
+    CHECK(has("wizard-banner-dismiss"));
+    CHECK(click("wizard-banner-dismiss") && !has("wizard-banner-dismiss"));
+    // Run again from the settings, and skipped: the settings come back without that line.
+    CHECK(click("open-wizard"));
+    frames(2);
+    CHECK(eh_wizard_window_is_open());
+    wizard_target();
+    frames(3);
+    CHECK(eh_wizard_window_step() == 0 && click("skip"));
+    for (Uint64 until = SDL_GetTicks() + 5000; SDL_GetTicks() < until && T.open();) frames(1), SDL_Delay(10);
+    CHECK(!T.open() && eh_settings_window_is_open());
+    settings_target();
+    CHECK(!has("wizard-banner-dismiss") && has("save"));
+    eh_settings_window_close();
+    return end("wizard-smoke", "");
 }

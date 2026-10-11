@@ -6,6 +6,8 @@
 // Opens the window, or brings it forward; `section` ("general", "live", "stt", "cleanup",
 // "history", "advanced") scrolls to that section, NULL leaves the page where it is.
 void eh_settings_window_open(const char *section);
+// Opens it afresh with the wizard's choices and a line saying where they came from.
+void eh_settings_window_open_from_wizard(void);
 bool eh_settings_window_is_open(void);
 void eh_settings_window_close(void);
 bool eh_settings_window_event(const SDL_Event *e);  // true when the event was the window's

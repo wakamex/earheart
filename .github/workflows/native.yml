@@ -54,12 +54,16 @@ jobs:
       - name: Install the X tools the end-to-end test drives
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y xvfb xdotool openbox imagemagick
-      - name: Drive the settings window
+      - name: Drive the settings window and the wizard
+        env:
+          # No models here, so the wizard's last step has a download to put off.
+          EARHEART_MODELS: ${{ runner.temp }}/no-models
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
-            xvfb-run -a sh -c 'openbox & sleep 1; zig-out/bin/earheart settings-smoke tests/vectors/settings.json'
+            xvfb-run -a sh -c 'openbox & sleep 1; zig-out/bin/earheart settings-smoke tests/vectors/settings.json && zig-out/bin/earheart wizard-smoke'
           else
             zig-out/bin/earheart settings-smoke tests/vectors/settings.json
+            zig-out/bin/earheart wizard-smoke
           fi
       - name: Dictate through a remote service
         run: tests/remote.sh

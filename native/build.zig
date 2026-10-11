@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) void {
 
     const mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true, .strip = optimize != .debug });
     mod.addCSourceFiles(.{ .root = b.path("src"), .files = sources, .flags = flags });
-    mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{ "main.c", "dictate.c", "deliver.c", "run.c", "settings_window.c", "settings_smoke.c" }, .flags = flags });
+    mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{ "main.c", "dictate.c", "deliver.c", "run.c", "settings_window.c", "window_smoke.c", "wizard_window.c" }, .flags = flags });
     // What the app does to the desktop around it, one implementation per system.
     switch (target.result.os.tag) {
         .windows => mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{"desk_windows.c"}, .flags = flags }),

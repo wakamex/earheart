@@ -23,6 +23,7 @@
 #include "recorder.h"
 #include "settings.h"
 #include "settings_window.h"
+#include "wizard_window.h"
 #include "stb_image.h"
 
 
@@ -39,6 +40,7 @@ static struct {
     // What another instance asked for before this one had finished starting, done once it has.
     SDL_AtomicInt ready;
     SDL_AtomicInt early;    // one bit per action
+    bool hidden, announce, open_settings;
 } R;
 
 /* ---------------- the log ---------------- */
@@ -167,6 +169,20 @@ static void apply_hotkeys(void) {
     static const char *const what[EH_HK_COUNT] = { "record", "pause", "discard", "correction" };
     for (int n = 0; n < EH_HK_COUNT; n++)
         if (!results.r[n].ok && R.hotkeys) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s hotkey: %s", what[n], results.r[n].error);
+}
+
+// The hotkeys, and then what a start shows (announceStartup of main/setup-notices.js): the wizard
+// on a first run, the settings when the record hotkey could not be registered or when asked for;
+// started hidden, nothing. Windows are opened by the main thread, which is told by an event.
+static void startup(void *user) {
+    apply_hotkeys();
+    if (!R.announce) return;
+    int open = 0;
+    if (!R.hidden && eh_settings_first_run()) open = 3;
+    else if (R.open_settings || (!R.hidden && R.hotkeys && !eh_hotkeys_status(EH_HK_RECORD).ok)) open = 2;
+    if (!open) return;
+    SDL_Event e = { .user = { .type = R.refresh_event, .code = open } };
+    SDL_PushEvent(&e);
 }
 
 /* ---------------- the tray ---------------- */
@@ -321,7 +337,10 @@ int eh_run(int argc, char **argv) {
     R.hotkeys = eh_hotkeys_init(hotkey_fired, error, sizeof error);
     if (!R.hotkeys) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "no global hotkeys here (%s): bind a system shortcut to `earheart --toggle`", error);
     eh_unlock();
-    spawn_action(ACT_HOTKEYS);
+    for (int i = 1; i < argc; i++) R.hidden = R.hidden || !SDL_strcmp(argv[i], "--hidden");
+    R.announce = !smoke;
+    R.open_settings = open_settings;
+    eh_spawn(startup, NULL);
     SDL_SetAtomicInt(&R.ready, 1);
     static const action early[] = { ACT_TOGGLE, ACT_PAUSE, ACT_DISCARD };
     for (int i = 0, seen = SDL_SetAtomicInt(&R.early, 0); i < 3; i++)
@@ -336,8 +355,6 @@ int eh_run(int argc, char **argv) {
     SDL_Log("Earheart %s started; data in %s", EARHEART_VERSION, data);
 
     eh_overlay_init();
-    if (open_settings && !smoke) settings_click(NULL, NULL);
-
     int status = 0;
     if (smoke) {
         // Everything is started; the queue is emptied once, then the engines are checked when asked.
@@ -350,6 +367,7 @@ int eh_run(int argc, char **argv) {
         if (check && !engine_check()) status = 1;
     } else {
         // The overlay says when it wants its next frame; until then the loop sleeps on events.
+        bool settings_open = false, wizard_open = false;
         for (int wait = -1;;) {
             SDL_Event e;
             if (SDL_WaitEventTimeout(&e, wait)) {
@@ -357,15 +375,21 @@ int eh_run(int argc, char **argv) {
                     if (e.type == SDL_EVENT_QUIT) goto done;
                     if (e.type == R.refresh_event && e.user.code == 1) refresh_tray();
                     if (e.type == R.refresh_event && e.user.code == 2) eh_settings_window_open(NULL);
-                    if (!eh_overlay_event(&e)) eh_settings_window_event(&e);
+                    if (e.type == R.refresh_event && e.user.code == 3) eh_wizard_window_open();
+                    if (!eh_overlay_event(&e) && !eh_settings_window_event(&e)) eh_wizard_window_event(&e);
                 } while (SDL_PollEvent(&e));
             }
             wait = eh_overlay_frame();
-            int window = eh_settings_window_frame();
-            if (window >= 0 && (wait < 0 || window < wait)) wait = window;
+            int windows[2] = { eh_settings_window_frame(), eh_wizard_window_frame() };
+            for (int i = 0; i < 2; i++)
+                if (windows[i] >= 0 && (wait < 0 || windows[i] < wait)) wait = windows[i];
+            // A window one of them opened or closed is drawn at once.
+            if (eh_settings_window_is_open() != settings_open || eh_wizard_window_is_open() != wizard_open) wait = 0;
+            settings_open = eh_settings_window_is_open(), wizard_open = eh_wizard_window_is_open();
         }
     }
 done:
+    eh_wizard_window_close();
     eh_settings_window_close();
     eh_overlay_quit();
     eh_lock();
