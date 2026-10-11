@@ -10,6 +10,7 @@
 //                                             {"systemPrompt", "transcript", "temperature", "topP", "topK",
 //                                             "minP", "seed", "fresh"}, answered by a line {"text", "ms"}
 //                                             or {"error", "ms"}; for the benchmark
+//   earheart dictate --wav FILE ...          a whole dictation with the file as the microphone (dictate.c)
 //   earheart --engine stt|cleanup             an engine worker, started by the app (see engine.h)
 // Both commands go through the engine workers, as dictation does.
 #include <SDL3/SDL.h>
@@ -19,6 +20,8 @@
 #include "cores.h"
 #include "engine.h"
 #include "paths.h"
+
+int eh_cmd_dictate(int argc, char **argv);  // dictate.c
 
 static int usage(void) {
     fprintf(stderr, "usage: earheart transcribe [--models DIR] [--model ID] [--json] [--list FILE] FILE.wav...\n"
@@ -213,5 +216,6 @@ int main(int argc, char **argv) {
     if (argc >= 3 && !SDL_strcmp(argv[1], "--engine")) return eh_worker_main(argv[2]);
     if (argc >= 2 && !SDL_strcmp(argv[1], "transcribe")) return cmd_transcribe(argc - 2, argv + 2);
     if (argc >= 2 && !SDL_strcmp(argv[1], "clean")) return cmd_clean(argc - 2, argv + 2);
+    if (argc >= 2 && !SDL_strcmp(argv[1], "dictate")) return eh_cmd_dictate(argc - 2, argv + 2);
     return usage();
 }
