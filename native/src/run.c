@@ -154,9 +154,11 @@ static void refresh_tray(void) {
     bool paste = !SDL_strcmp(mode, "paste") && !keep, has_last = eh_jv_count(eh_history_list()) > 0;
     eh_unlock();
 
-    int count = 0;
-    const SDL_TrayEntry **old = SDL_GetTrayEntries(R.menu, &count);
-    for (int i = count - 1; old && i >= 0; i--) SDL_RemoveTrayEntry((SDL_TrayEntry *)old[i]);
+    // The list is SDL's own and shifts under a removal, so it is asked for again each time.
+    for (int count = 1; count;) {
+        const SDL_TrayEntry **entries = SDL_GetTrayEntries(R.menu, &count);
+        if (entries && count) SDL_RemoveTrayEntry((SDL_TrayEntry *)entries[count - 1]);
+    }
     add(state == EH_RECORDING ? "Stop & transcribe" : state == EH_PROCESSING ? "Processing…" : "Start dictation",
         SDL_TRAYENTRY_BUTTON | (state == EH_PROCESSING ? SDL_TRAYENTRY_DISABLED : 0), menu_click, ACT_TOGGLE);
     if (state != EH_IDLE) add("Cancel", SDL_TRAYENTRY_BUTTON, menu_click, ACT_CANCEL);
