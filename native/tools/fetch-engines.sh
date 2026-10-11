@@ -34,7 +34,12 @@ while [ $# -gt 0 ]; do
     case "$file" in *.zip) unzip -q "$file" -d "$tmp/x" ;; *) tar -xf "$file" -C "$tmp/x" ;; esac
 done
 # Keep the libraries the app loads and what they load in turn; the archives' programs stay out.
+# Each versioned library is kept once, under the name the others ask the loader for (libggml.so.0).
 find "$tmp/x" \( -name 'libsherpa-onnx-c-api.*' -o -name 'libonnxruntime*' -o -name 'sherpa-onnx-c-api.dll' -o -name 'onnxruntime*.dll' \
-    -o -name 'libllama.*' -o -name 'llama.dll' -o -name 'libggml*' -o -name 'ggml*.dll' -o -name 'libomp*' \) -exec cp -P {} "$out/" \;
+    -o -name 'libllama.*' -o -name 'llama.dll' -o -name 'libggml*' ! -name '*rpc*' -o -name 'ggml*.dll' ! -name '*rpc*' -o -name 'libomp*' \) -exec cp -L {} "$out/" \;
+for f in "$out"/*.so.[0-9]*; do
+    [ -e "$f" ] || continue
+    case "$f" in *.so.[0-9]*.*) rm "$f" ;; *) rm -f "${f%.[0-9]*}" ;; esac
+done
 rm -rf "$tmp"
 ls "$out"

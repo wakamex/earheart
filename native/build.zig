@@ -7,7 +7,7 @@ const std = @import("std");
 const zon = @import("build.zig.zon");
 
 const flags: []const []const u8 = &.{ "-std=c11", "-ffp-contract=off", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-missing-field-initializers" };
-const sources: []const []const u8 = &.{ "main.c", "wav.c", "stt.c", "models.c", "catalog.c" };
+const sources: []const []const u8 = &.{ "main.c", "wav.c", "stt.c", "cleanup.c", "models.c", "catalog.c" };
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
