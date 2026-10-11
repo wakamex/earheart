@@ -334,7 +334,22 @@ Booting the whole app and exiting (`--smoke-test`), both builds inside one X dis
 | Electron | 2.26 to 2.29 s | 182 to 184 MB |
 | Native | 0.07 to 0.09 s | 8 to 9 MB |
 
-Idle in the tray with no models loaded the native build is one process of 6 MiB, against the Electron build's 267 MiB. It has no overlay window yet; that comes with M4.
+Idle in the tray with no models loaded the native build is one process of 6 MiB, against the Electron build's 267 MiB. 
+#### Chromium's microphone processing is worth 2.6 points of word error rate in a noisy room
+
+The Electron build records through Chromium with echo cancellation, noise suppression and automatic gain on (`renderer/microphone.js`); the native build records what SDL hands it. `tools/eval-mic-processing.mjs` plays each of 40 FLEURS clips into the Electron build's real overlay as the microphone, keeps what the overlay captured, and transcribes both that and the clip as played with the same engine (Parakeet TDT 0.6B v3 int8). The table gives the word error rate (WER) of each against the reference text, lower is better, under three conditions: the clip as it is, 20 dB quieter (a low-gain microphone), and with white noise 15 dB below the speech. The last column is native minus Electron in percentage points, with the middle 95% of 10,000 resamplings of the clips.
+
+| Condition | Clips | WER of the audio as played (what the native build records) | WER of the audio as Chromium captured it (what the Electron build records) | Difference in points, with 95% interval |
+|---|---|---|---|---|
+| As recorded | 40 | 6.07% | 5.29% | 0.79 (-0.12 to 1.82) |
+| 20 dB quieter | 40 | 6.52% | 5.62% | 0.90 (-0.23 to 2.07) |
+| Noise 15 dB below speech | 40 | 9.79% | 7.20% | 2.59 (0.34 to 5.32) |
+
+The native build transcribes noisy audio 2.59 points worse. On clean and quiet audio the difference leans the same way and its interval includes zero. Decision: the native build records unprocessed audio through M5, and a noise suppressor is tried on these same clips before delivery; the candidates are the systems' own voice processing and [RNNoise](https://github.com/xiph/rnnoise). This is a gap against the Electron build until that closes it.
+
+#### The overlay does not take the keyboard
+
+With the overlay of M4 on screen, `tests/e2e.sh` checks mid-recording that the paste target still has the keyboard focus, and the paste then lands in it. On Linux this holds under a window manager (Openbox in CI). On an X display with no window manager SDL gives the keyboard to every window it shows, so the test starts one.
 
 Not measured: hotkey to "Listening" in the Electron build, which has no marker to time against. In the native build the recorder is live within the same second as the key press on all three systems.
 

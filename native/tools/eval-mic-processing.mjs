@@ -85,12 +85,19 @@ for (const [condition, change] of Object.entries(CONDITIONS)) {
     console.error(`${condition}: ${i + 1}/${clips.length}`);
   }
   const texts = transcribe(pairs.flatMap((p) => [p.played, p.captured]));
-  const score = (key) => {
-    const counts = pairs.map((p) => evalLib.editCounts(evalLib.normalise(p.clip.raw), evalLib.normalise(texts[p[key]] || "")));
-    return { wer: evalLib.corpusWer(counts), empty: pairs.filter((p) => !(texts[p[key]] || "").trim()).length };
-  };
-  results[condition] = { clips: pairs.length, sdlRaw: score("played"), chromiumProcessed: score("captured") };
+  const counts = (key) => pairs.map((p) => evalLib.editCounts(evalLib.normalise(p.clip.raw), evalLib.normalise(texts[p[key]] || "")));
+  const score = (key) => ({ wer: evalLib.corpusWer(counts(key)), empty: pairs.filter((p) => !(texts[p[key]] || "").trim()).length });
+  // How sure the difference is: the clips drawn again with replacement, both versions of a clip
+  // together, 10,000 times; the middle 95% of the differences in corpus WER.
+  const raw = counts("played"), processed = counts("captured"), rand = mulberry32(1), diffs = [];
+  for (let n = 0; n < 10000; n++) {
+    const pick = pairs.map(() => Math.floor(rand() * pairs.length));
+    diffs.push(evalLib.corpusWer(pick.map((i) => raw[i])) - evalLib.corpusWer(pick.map((i) => processed[i])));
+  }
+  diffs.sort((a, b) => a - b);
+  results[condition] = { clips: pairs.length, sdlRaw: score("played"), chromiumProcessed: score("captured"), rawMinusProcessed95: [diffs[250], diffs[9749]] };
   fs.writeFileSync(path.join(args.out, "results.json"), JSON.stringify(results, null, 2) + "\n");
 }
-console.log("| condition | clips | WER, audio as played (what SDL records) | WER, as Chromium's overlay captured it |\n|---|---|---|---|");
-for (const [name, r] of Object.entries(results)) console.log(`| ${name} | ${r.clips} | ${(r.sdlRaw.wer * 100).toFixed(2)}% | ${(r.chromiumProcessed.wer * 100).toFixed(2)}% |`);
+const pct = (x) => `${(x * 100).toFixed(2)}`;
+console.log("| condition | clips | WER, audio as played (what SDL records) | WER, as Chromium's overlay captured it | difference in points, 95% interval |\n|---|---|---|---|---|");
+for (const [name, r] of Object.entries(results)) console.log(`| ${name} | ${r.clips} | ${pct(r.sdlRaw.wer)}% | ${pct(r.chromiumProcessed.wer)}% | ${pct(r.sdlRaw.wer - r.chromiumProcessed.wer)} (${pct(r.rawMinusProcessed95[0])} to ${pct(r.rawMinusProcessed95[1])}) |`);
