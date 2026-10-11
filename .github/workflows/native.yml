@@ -1,0 +1,50 @@
+name: Native
+
+# The native build in native/: C on gesso, with the engines loaded at run time.
+on:
+  push:
+    branches: [main, feat/native-port]
+    paths: ["native/**", ".github/workflows/native.yml"]
+  pull_request:
+    paths: ["native/**", ".github/workflows/native.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Native on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, engines: linux-x64 }
+          - { os: windows-2025, engines: windows-x64 }
+          - { os: macos-15, engines: macos-arm64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: native
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.17.0
+      - name: Fetch the engine libraries
+        run: tools/fetch-engines.sh ${{ matrix.engines }}
+      - name: Build
+        run: zig build
+      # Without models: WAV reading, worker messages and a worker that dies.
+      - name: Test
+        run: zig build test
+      # Loads both engine libraries in their workers, far enough to report a missing model.
+      - name: Check that the engines load
+        run: |
+          zig-out/bin/earheart transcribe --models . no.wav 2>&1 | tee stt.log || true
+          grep -q "could not be loaded" stt.log
+          zig-out/bin/earheart clean --models . --cpu text 2>&1 | tee cleanup.log || true
+          grep -q "could not be loaded" cleanup.log
