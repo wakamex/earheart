@@ -1,4 +1,5 @@
 #include "cleanup.h"
+#include "cores.h"
 #include "paths.h"
 #include "llama/llama.h"
 
@@ -166,8 +167,7 @@ static bool try_load(const char *path, int context_size, bool gpu) {
     struct llama_context_params cp = L.context_defaults();
     cp.n_ctx = (uint32_t)context_size;
     cp.n_batch = N_BATCH;
-    // Physical cores do the arithmetic; SDL counts logical ones, and half of them is the usual ratio.
-    cp.n_threads = cp.n_threads_batch = SDL_max(1, SDL_GetNumLogicalCPUCores() / 2);
+    cp.n_threads = cp.n_threads_batch = eh_math_cores();
     L.ctx = L.context_new(L.model, cp);
     if (!L.ctx) { SDL_snprintf(L.error, sizeof L.error, "No %d-token context could be made for %s", context_size, path); return false; }
     return true;

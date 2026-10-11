@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include "catalog.h"
 #include "cleanup.h"
+#include "cores.h"
 #include "engine.h"
 #include "paths.h"
 
@@ -208,6 +209,7 @@ static int cmd_clean(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+    if (argc >= 2 && !SDL_strcmp(argv[1], "--cores")) { printf("%d\n", eh_math_cores()); return 0; }
     if (argc >= 3 && !SDL_strcmp(argv[1], "--engine")) return eh_worker_main(argv[2]);
     if (argc >= 2 && !SDL_strcmp(argv[1], "transcribe")) return cmd_transcribe(argc - 2, argv + 2);
     if (argc >= 2 && !SDL_strcmp(argv[1], "clean")) return cmd_clean(argc - 2, argv + 2);
