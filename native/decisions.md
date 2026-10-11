@@ -7,7 +7,8 @@ The record of the port of Earheart from [Electron](https://www.electronjs.org/) 
 | Name | Machine | Used for |
 |---|---|---|
 | Linux | Fedora 44, Ryzen 9 3950X (16 cores, 32 threads), 32 GB, RTX 3090, headless under Xvfb | builds, tests, corpus runs |
-| Mac | Mac mini, Apple M2 Pro, 16 GB, macOS 26.6.2, Xcode 26.5 (rented) | macOS builds and tests |
+| Mac | Mac mini, Apple M2 Pro (6 performance and 4 efficiency cores), 16 GB, macOS 26.6.2, Xcode 26.5 (rented) | macOS builds, tests and timings |
+| Windows | Windows 11, Ryzen 7 3800XT (8 cores, 16 threads), 32 GB, RTX 3080 | Windows tests and timings |
 
 The Linux host runs other people's jobs at the same time: its load average was between 20 and 70 during the M0 and M1 runs. Memory figures and transcripts from it are sound; its timings are only good for comparing two builds measured side by side. It has no Vulkan driver installed, so llama.cpp's Vulkan backend finds no GPU there.
 
@@ -37,7 +38,9 @@ SDL hands a child's output over without waiting, so the app's reading thread sle
 
 The Electron build ships llama.cpp three times on Linux and Windows: for the CPU, for Vulkan and for NVIDIA's CUDA. The CUDA copies are 508 MB of the 1,059 MB Linux install. The native build takes llama.cpp's Vulkan archive, which also holds the CPU backends.
 
-The cost: a machine with an NVIDIA card whose driver offers CUDA and no Vulkan runs cleanup on the CPU, where the Electron build would use the GPU. The Linux reference machine is such a machine. Whether Vulkan is slower than CUDA where both work is not yet measured; it needs the Windows machine.
+The cost: a machine with an NVIDIA card whose driver offers CUDA and no Vulkan runs cleanup on the CPU, where the Electron build would use the GPU. The Linux reference machine is such a machine.
+
+On the Windows reference machine the question did not arise: `node-llama-cpp`, with its CUDA packages installed, chose Vulkan there too, so both builds ran cleanup on the same backend (M1 measurements). CUDA against Vulkan on one machine is still unmeasured.
 
 ### Catalogue prompts are written out; other models use llama.cpp's template reader (M1, 2026-10-11)
 
@@ -47,7 +50,27 @@ The cost: a machine with an NVIDIA card whose driver offers CUDA and no Vulkan r
 
 The sampler chain is top-k, top-p, min-p when set, temperature, then a seeded random pick, in `node-llama-cpp`'s order, with its defaults of top-k 40 and top-p 0.95 and no repeat penalty (its penalty defaults to 1, which turns it off). Earheart's "Polished" style sets top-k to 0, meaning off, but `main/util/cleanup-turn.js` forwards top-k only when it is above 0, so the library's default of 40 applies. The native build does the same, to match what users get today.
 
-Cleanup threads: `node-llama-cpp` uses the number of physical cores. SDL reports logical cores only, so the native build uses half of them. This matters only when cleanup runs on the CPU.
+Cleanup threads: `node-llama-cpp` computes with llama.cpp's count of math cores, which is the physical cores and, on Apple silicon, the performance cores. The native build counts the same (`src/cores.c`). A first version used half the logical processors, 5 on the Mac against 6, and was 7 to 10% slower on the CPU there.
+
+### The app's logic runs as tasks that take turns under one lock (M3, 2026-10-11)
+
+The Electron build's pipeline, live preview and timers all run on one JavaScript thread: between two awaits a function sees state nobody else changes, and its correctness rests on that. C has no awaits. Rewriting the logic as callbacks and hand-made state machines would have changed its shape and its interleavings both.
+
+`src/loop.c` keeps the shape. Each asynchronous function of the JavaScript is a task on a thread of its own that holds one lock while it runs and lets go of it only where the JavaScript awaits: an engine call, a sleep. The lock is taken in turns, and a task's turn is taken when it is spawned, so tasks start in the order they were spawned; engine requests likewise go out in the order tasks made them (`eh_engine_reserve`). A timer cancelled under the lock never fires, as with `clearTimeout`. The window's thread will take the same lock to read state for a frame.
+
+The cost is a thread per task in flight, a handful at most.
+
+### Ported logic is tested against the JavaScript it came from (M3, 2026-10-11)
+
+`tools/gen-vectors.js` runs the Electron build's own modules on generated inputs and writes inputs and results to `tests/vectors/`; the C tests replay them and compare exactly. Audio is rebuilt in C from a seed with the Mulberry32 generator, which gesso reproduces bit for bit, so the files hold recipes and not samples. Covered so far: the silence splitter and speech probe (200 recording and option pairs), the chunked decoder under a scripted fake engine (120 dictations), the stumble stripper and word comparison (1,463 texts), settings merging and migration (18 files) and cleanup prompt resolution (7 sections).
+
+The stumble stripper is regular expressions over Unicode classes in JavaScript and hand-written scanners in C. `tools/gen-unicode.js` writes the class and case tables from Node's own Unicode data, so other scripts behave as they do there.
+
+### Own data folder; the Electron build's models used in place (M3, 2026-10-11)
+
+Settings, history and downloads live in a folder of this build's own (`earheart-native` under the system's place for application data, or `$EARHEART_DATA`). On a first run the Electron build's `settings.json` is taken over, without the API keys that only that program can decrypt. Models are looked for in this build's folder and then in the Electron build's, by its own completion markers and fingerprints, so nothing is downloaded twice and nothing of the Electron build's is written to.
+
+The saved microphone is matched by SDL's device name. An id saved by the Electron build is Chromium's and matches nothing, so such a setting falls back to the system's default microphone with the overlay's "Saved mic missing" remark.
 
 ## Measurements
 
@@ -213,3 +236,50 @@ Every surface of the Electron build at v0.39.0 and what the native build does wi
 | Screen-reader access, which Chromium provides without any work in the app | gesso draws its own interface and has no accessibility bridge yet. `PRODUCT.md` leaves screen-reader support undecided. Every flow stays usable from the keyboard. |
 | CUDA for cleanup | see the decision above |
 | The optional Python server in `stt-server/` | unchanged and separate: it is a remote engine either build can point at |
+
+### M1: engines from C (2026-10-11)
+
+#### Speech: identical transcripts
+
+All 647 clips of the evaluation corpus (FLEURS en_us test, as `scripts/eval-stt.js` prepares it), both shipped Parakeet v3 models, 8 threads. On Linux the reference is the Electron build's own worker through `scripts/eval-stt.js`. On macOS and Windows it is `tools/stt-oracle.js`, the same addon and settings without Electron, which on Linux matches the worker on all 647 clips.
+
+| System | Model | Identical transcripts | Decode time, reference | Decode time, native |
+|---|---|---|---|---|
+| Linux | int8 | 647 of 647 | not comparable (machine under load) | |
+| Linux | full precision | 647 of 647 | not comparable | |
+| macOS | int8 | 647 of 647 | 169.0 s | 160.0 s |
+| macOS | full precision | 647 of 647 | 266.8 s | 257.2 s |
+| Windows | int8 | 647 of 647 | 433.9 s | 430.6 s |
+| Windows | full precision | 647 of 647 | 414.1 s | 412.4 s |
+
+Transcripts differ between systems in both builds alike: 174 of the 647 int8 transcripts on macOS differ from Linux's. Each system is therefore compared with its own reference.
+
+#### Cleanup: same prompts, same quality, same speed
+
+Prompt tokens for Qwen3 4B, Gemma 3 1B, Gemma 3 4B and Granite 4.0 Micro are identical to `node-llama-cpp`'s (`zig build test` with `EARHEART_MODELS` set).
+
+`scripts/bench-cleanup.mjs` and its native twin `tools/bench-cleanup-native.mjs`: the same inputs, styles, seeds and scoring, 20 cleans per model on the CPU and 5 on the GPU. Median seconds per clean of the FLUENT input in the default style:
+
+| System | Model | Backend | Electron build | Native build |
+|---|---|---|---|---|
+| macOS | Gemma 3 1B | CPU, 6 threads | 2.40 | 2.36 |
+| macOS | Gemma 3 1B | Metal | 1.94 | 1.93 |
+| macOS | Qwen3 4B | CPU, 6 threads | 11.89 | 11.50 |
+| macOS | Qwen3 4B | Metal | 5.56 | 5.40 |
+| Windows | Gemma 3 1B | CPU, 8 threads | 8.42 | 5.21 |
+| Windows | Gemma 3 1B | Vulkan | 1.08 | 1.00 |
+
+On the Windows CPU the native build is 1.6 times faster. llama.cpp's own release holds a CPU backend per processor generation and picks one at run time; `node-llama-cpp`'s Windows package is one generic build.
+
+Quality by the benchmark's scoring, macOS, Qwen3 4B, the shipped default: no fillers left, no fidelity failures and no runaway replies in either build; median content-word retention 0.94 in both for FLUENT in the default style (the figure `docs/cleanup-models.md` records), 0.90 in both for the polished style, 0.97 in both for REPORTED.
+
+With the same seed the two builds write byte-identical text in 9 of 10 cleans on Metal. On the CPU 16 of 40 are identical: the CPU backends are different builds whose sums round differently, and one different token changes what follows. Gemma 3 1B is the more sensitive: its FLUENT/polished retention is 0.86 in the Electron build and 0.77 in the native one over five seeds, with the same count of fidelity failures.
+
+#### What M1 settled
+
+- Linking: nothing is linked. Both engines load at run time on all three systems, and CI builds and loads them on Linux, Windows and macOS on every push (`.github/workflows/native.yml`).
+- Two things Windows needed: the engines folder made a DLL directory, since `LoadLibrary` does not look beside a library for its imports; and llama.cpp's functions looked up across its three libraries.
+- Chat templates: written out per family and token-identical for the catalogue.
+- GPU: Metal on the Mac and Vulkan on Windows in both builds. The Linux reference machine has no Vulkan driver, so the native build cleans on its CPU there, where the Electron build uses CUDA.
+
+Not yet measured: Qwen3 4B on Windows (in progress when this was written), and Chromium's microphone processing against SDL's raw audio, which belongs to M2.
