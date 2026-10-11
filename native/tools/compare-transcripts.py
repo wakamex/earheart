@@ -3,19 +3,24 @@
 
     compare-transcripts.py ELECTRON.json MODEL_ID NATIVE.jsonl
 
-ELECTRON.json is the output of scripts/eval-stt.js, and NATIVE.jsonl the output of
-`earheart transcribe --json` over the same clips. Prints how many clips both transcribed, how many
+ELECTRON.json is the output of scripts/eval-stt.js, or the JSON lines of tools/stt-oracle.js, and
+NATIVE.jsonl the output of `earheart transcribe --json` over the same clips. Prints how many clips both transcribed, how many
 texts are identical, and each difference. Exits 1 unless every clip is there and identical.
 """
 import json, os, sys
 
 electron, model, native = sys.argv[1:4]
-row = next(r for r in json.load(open(electron))["rows"] if r["id"] == model)
-want = {d["file"]: d["text"] for d in row["decodes"]}
+if electron.endswith(".jsonl"):
+    rows = [json.loads(line) for line in open(electron)]
+else:
+    rows = next(r for r in json.load(open(electron))["rows"] if r["id"] == model)["decodes"]
+# Windows paths keep their backslashes when the file is read on another system.
+name = lambda path: path.replace("\\", "/").rsplit("/", 1)[-1]
+want = {name(d["file"]): d["text"] for d in rows}
 got = {}
 for line in open(native):
     d = json.loads(line)
-    got[os.path.basename(d["file"])] = d["text"]
+    got[name(d["file"])] = d["text"]
 both = sorted(set(want) & set(got))
 different = [f for f in both if want[f] != got[f]]
 for f in different:

@@ -1,5 +1,5 @@
-// Tests. The prompt test needs the cleanup models and runs only when EARHEART_MODELS names their
-// folder and the engines are installed beside the test program or named by EARHEART_ENGINES.
+// Tests: earheart-tests TESTS_DIR [ENGINES_DIR]. The prompt test needs the cleanup models and runs
+// only when EARHEART_MODELS names their folder and the engines are there.
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include <string.h>
@@ -7,10 +7,10 @@
 #include "cleanup.h"
 #include "engine.h"
 #include "paths.h"
+#include "test.h"
 #include "wav.h"
 
-static int failures;
-#define CHECK(cond) do { if (!(cond)) { printf("  FAILED %s:%d: %s\n", __FILE__, __LINE__, #cond); failures++; } } while (0)
+int failures;
 
 static size_t make_wav(uint8_t *buf, int channels, int rate, const int16_t *samples, int count, bool extra_chunk) {
     uint8_t *p = buf;
@@ -194,10 +194,18 @@ int main(int argc, char **argv) {
         printf("engine %-5s %s\n", kinds[i], failures == before ? "ok" : "FAILED");
     }
     if (argc >= 3 && !SDL_getenv("EARHEART_ENGINES")) SDL_setenv_unsafe("EARHEART_ENGINES", argv[2], 1);
+    char path[1024];
+    if (argc >= 2) {
+        int before = failures;
+        SDL_snprintf(path, sizeof path, "%s/vectors/audio.json", argv[1]);
+        test_audio(path);
+        printf("%-12s %s\n", "audio", failures == before ? "ok" : "FAILED");
+    }
     const char *models = SDL_getenv("EARHEART_MODELS");
     if (models && argc >= 2) {
         int before = failures;
-        test_prompts(models, argv[1]);
+        SDL_snprintf(path, sizeof path, "%s/prompts.json", argv[1]);
+        test_prompts(models, path);
         printf("%-12s %s\n", "prompts", failures == before ? "ok" : "FAILED");
     } else {
         printf("%-12s skipped (set EARHEART_MODELS)\n", "prompts");
