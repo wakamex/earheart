@@ -50,17 +50,13 @@ jobs:
         run: tests/remote.sh
       # One dictation as a user makes it: hotkey, a recording as the microphone, hotkey, and the
       # text in a focused window. Needs the small speech model.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: models
           key: models-parakeet-tdt-0.6b-v3-int8
           enableCrossOsArchive: true
       - name: Fetch the small speech model
-        working-directory: .
-        run: node native/tools/fetch-model.js models stt/parakeet-tdt-0.6b-v3-int8
+        run: zig-out/bin/earheart models --models ../models download stt/parakeet-tdt-0.6b-v3-int8
       - name: Install the X tools the end-to-end test drives
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y xvfb xdotool

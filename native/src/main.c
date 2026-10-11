@@ -13,6 +13,8 @@
 //                                             {"systemPrompt", "transcript", "temperature", "topP", "topK",
 //                                             "minP", "seed", "fresh"}, answered by a line {"text", "ms"}
 //                                             or {"error", "ms"}; for the benchmark
+//   earheart models [--models DIR] [list | download KIND/ID... | remove KIND/ID...]
+//                                             the catalogue, and downloads into DIR
 //   earheart dictate --wav FILE ...          a whole dictation with the file as the microphone (dictate.c)
 //   earheart --engine stt|cleanup             an engine worker, started by the app (see engine.h)
 // Both commands go through the engine workers, as dictation does.
@@ -24,8 +26,54 @@
 #include "wav.h"
 #include "cleanup.h"
 #include "cores.h"
+#include "download.h"
 #include "engine.h"
 #include "paths.h"
+
+static int usage(void);
+
+static void print_progress(void *user, long long received, long long total, const char *file) {
+    static Uint64 last;
+    if (SDL_GetTicks() - last < 1000 && received < total) return;
+    last = SDL_GetTicks();
+    fprintf(stderr, "%s: %lld of %lld MB\n", file, received >> 20, total >> 20);
+}
+
+// earheart models [--models DIR] [list | download KIND/ID... | remove KIND/ID...]
+static int cmd_models(int argc, char **argv) {
+    const char *dir = SDL_getenv("EARHEART_MODELS");
+    int i = 0;
+    if (i + 1 < argc && !SDL_strcmp(argv[i], "--models")) { dir = argv[i + 1]; i += 2; }
+    char own[1200];
+    SDL_snprintf(own, sizeof own, "%s" EH_SEP "models", eh_data_dir());
+    const char *dirs[] = { dir ? dir : own };
+    eh_models_set_dirs(dirs, 1);
+    const char *verb = i < argc ? argv[i++] : "list";
+    if (!SDL_strcmp(verb, "list")) {
+        for (int k = 0; k < eh_catalog_count; k++) {
+            const eh_model *m = &eh_catalog[k];
+            long long bytes = 0;
+            for (int f = 0; f < m->file_count; f++) bytes += m->files[f].bytes;
+            printf("%s/%s\t%s\t%lld MB\t%s%s\n", eh_model_kind_dir(m->kind), m->id, eh_model_installed(m, NULL, 0) ? "installed" : "-", bytes >> 20, m->label, m->is_default ? " (default)" : "");
+        }
+        return 0;
+    }
+    bool download = !SDL_strcmp(verb, "download");
+    if (!download && SDL_strcmp(verb, "remove")) return usage();
+    for (; i < argc; i++) {
+        const char *slash = SDL_strchr(argv[i], '/');
+        const eh_model *m = slash ? eh_catalog_find(!SDL_strncmp(argv[i], "stt/", 4) ? EH_MODEL_STT : EH_MODEL_CLEANUP, slash + 1) : NULL;
+        char error[256];
+        SDL_AtomicInt stop = { 0 };
+        if (!m) { fprintf(stderr, "earheart: no model %s in the catalogue\n", argv[i]); return 2; }
+        if (!(download ? eh_model_download(m, &stop, print_progress, NULL, error, sizeof error) : eh_model_remove(m, error, sizeof error))) {
+            fprintf(stderr, "earheart: %s\n", error);
+            return 1;
+        }
+        printf("%s: %s\n", argv[i], download ? "installed" : "removed");
+    }
+    return 0;
+}
 
 int eh_cmd_dictate(int argc, char **argv);  // dictate.c
 int eh_run(int argc, char **argv);          // run.c
@@ -292,6 +340,7 @@ int main(int argc, char **argv) {
     if (argc >= 2 && !SDL_strcmp(argv[1], "transcribe")) return cmd_transcribe(argc - 2, argv + 2);
     if (argc >= 2 && !SDL_strcmp(argv[1], "clean")) return cmd_clean(argc - 2, argv + 2);
     if (argc >= 2 && !SDL_strcmp(argv[1], "dictate")) return eh_cmd_dictate(argc - 2, argv + 2);
+    if (argc >= 2 && !SDL_strcmp(argv[1], "models")) return cmd_models(argc - 2, argv + 2);
     if (argc >= 2 && (!SDL_strcmp(argv[1], "--help") || !SDL_strcmp(argv[1], "-h"))) { usage(); return 0; }
     // Anything else is the app itself: in the tray, or handing its arguments to the instance there.
     return eh_run(argc, argv);
