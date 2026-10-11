@@ -34,6 +34,9 @@ static struct {
     bool discard_held;      // the discard hotkey is registered, which it is only while a dictation is live
     FILE *log;
     SDL_Mutex *log_lock;
+    // What another instance asked for before this one had finished starting, done once it has.
+    SDL_AtomicInt ready;
+    SDL_AtomicInt early;    // one bit per action
 } R;
 
 /* ---------------- the log ---------------- */
@@ -97,11 +100,13 @@ static void hotkey_fired(int id) {
     spawn_action(id == HOTKEY_RECORD ? ACT_TOGGLE : id == HOTKEY_PAUSE ? ACT_PAUSE : ACT_DISCARD);
 }
 
+// Called on the instance listener's thread, which is live before the app is.
 static void instance_args(int argc, char **argv) {
     for (int i = 0; i < argc; i++) {
-        if (!SDL_strcmp(argv[i], "--toggle")) spawn_action(ACT_TOGGLE);
-        else if (!SDL_strcmp(argv[i], "--pause")) spawn_action(ACT_PAUSE);
-        else if (!SDL_strcmp(argv[i], "--discard")) spawn_action(ACT_DISCARD);
+        action a = !SDL_strcmp(argv[i], "--toggle") ? ACT_TOGGLE : !SDL_strcmp(argv[i], "--pause") ? ACT_PAUSE : !SDL_strcmp(argv[i], "--discard") ? ACT_DISCARD : ACT_HOTKEYS;
+        if (a == ACT_HOTKEYS) continue;
+        if (SDL_GetAtomicInt(&R.ready)) { spawn_action(a); continue; }
+        for (int seen = SDL_GetAtomicInt(&R.early); !SDL_CompareAndSwapAtomicInt(&R.early, seen, seen | 1 << a); seen = SDL_GetAtomicInt(&R.early)) {}
     }
 }
 
@@ -273,6 +278,10 @@ int eh_run(int argc, char **argv) {
     if (!R.hotkeys) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "no global hotkeys here (%s): bind a system shortcut to `earheart --toggle`", error);
     eh_unlock();
     spawn_action(ACT_HOTKEYS);
+    SDL_SetAtomicInt(&R.ready, 1);
+    static const action early[] = { ACT_TOGGLE, ACT_PAUSE, ACT_DISCARD };
+    for (int i = 0, seen = SDL_SetAtomicInt(&R.early, 0); i < 3; i++)
+        if (seen & 1 << early[i]) spawn_action(early[i]);
 
     R.icon = icon_surface(icon_tray, sizeof icon_tray);
     R.icon_recording = icon_surface(icon_tray_recording, sizeof icon_tray_recording);
