@@ -7,13 +7,14 @@
 #   EARHEART_MODELS=<dir> tests/e2e.sh [WAV [TALK_SECONDS]]
 #
 # Linux: needs an X display (run under xvfb-run) and xdotool. Windows: run from Git Bash in a
-# desktop session. macOS: pasting needs Accessibility granted to the program; without it (as on a
-# CI runner) set EARHEART_E2E_NO_PASTE=1, and the test checks the fallback instead: the text on the
-# clipboard and the notice in the log. The hotkey itself cannot be pressed from a script on macOS.
+# desktop session. macOS: pasting needs Accessibility granted to the program or to whatever started
+# it (GitHub's runners grant it to their shell); without it set EARHEART_E2E_NO_PASTE=1, and the
+# test checks the fallback instead: the text on the clipboard and the notice in the log. The hotkey
+# itself is not pressed on macOS, where a script needs the same permission to press keys.
 set -u
 cd "$(dirname "$0")/.."
 wav=${1:-$PWD/tests/audio/fleurs-en_us-1904.wav} talk=${2:-7}
-bin=$PWD/zig-out/bin
+bin=${EARHEART_BIN:-$PWD/zig-out/bin}
 case "$(uname -s)" in
     Linux) press() { xdotool key ctrl+shift+space; } ;;
     Darwin) press() { "$bin/earheart" --toggle; } ;;
@@ -26,7 +27,7 @@ cat > "$EARHEART_DATA/settings.json" <<JSON
  "cleanup":{"enabled":false,"engine":"builtin"},"output":{"mode":"paste","restoreClipboard":true}}
 JSON
 log=$EARHEART_DATA/earheart.log
-fail() { echo "FAILED: $*"; tail -20 "$log" 2>/dev/null; kill $app 2>/dev/null; exit 1; }
+fail() { echo "FAILED: $*"; tail -20 "$log" 2>/dev/null; tail -30 "$EARHEART_DATA/target.out" 2>/dev/null; kill $app 2>/dev/null; exit 1; }
 
 "$bin/earheart" --hidden 2> "$EARHEART_DATA/stderr.log" &
 app=$!
@@ -44,7 +45,7 @@ run() {  # $1: how the dictation is started and stopped; $2: what to call it
         grep -q "auto-paste failed" "$log" || fail "$2: no notice of the paste that could not be sent"
         pasted=$(pbpaste)
     else
-        "$bin/paste-target" "the user's own clipboard" 120 > "$EARHEART_DATA/target.out" &
+        ${EARHEART_E2E_WRAP:-} "$bin/paste-target" "the user's own clipboard" 120 > "$EARHEART_DATA/target.out" 2>&1 &
         target=$!
         for i in $(seq 100); do grep -q ready "$EARHEART_DATA/target.out" && break; sleep 0.1; done
         command -v xdotool >/dev/null && xdotool search --name paste-target windowfocus 2>/dev/null

@@ -21,8 +21,19 @@ static int press_hotkey(void) {
     }
     return SendInput(6, in, sizeof(INPUT)) == 6 ? 0 : 1;
 }
+
+// Windows gives the foreground only to a process that already has it or that the user just
+// used; a tap of Alt counts as use, and the test's window must be the one a paste lands in.
+static void take_foreground(SDL_Window *window) {
+    HWND hwnd = SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
+    keybd_event(VK_MENU, 0, 0, 0);
+    keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);
+    SetForegroundWindow(hwnd);
+    SetFocus(hwnd);
+}
 #else
 static int press_hotkey(void) { return 2; }
+static void take_foreground(SDL_Window *window) { SDL_RaiseWindow(window); }
 #endif
 
 int main(int argc, char **argv) {
@@ -34,6 +45,7 @@ int main(int argc, char **argv) {
     if (!window) { fprintf(stderr, "paste-target: %s\n", SDL_GetError()); return 2; }
     SDL_SetClipboardText(original);
     SDL_RaiseWindow(window);
+    take_foreground(window);
     setvbuf(stdout, NULL, _IOLBF, 0);
     printf("ready: %u\n", (unsigned)SDL_GetWindowID(window));
     for (;;) {
