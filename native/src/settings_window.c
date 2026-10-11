@@ -130,9 +130,14 @@ static int output_mode_of(const eh_jv *cfg) {
     return eh_jv_boolean(eh_jv_path(cfg, "output.restoreClipboard"), true) ? 0 : 1;
 }
 
+// A number as its shortest text that reads back as the same number.
 static void number_text(char *out, size_t size, const eh_jv *v) {
     if (!v || v->type != EH_JV_NUMBER) { out[0] = 0; return; }
-    SDL_snprintf(out, size, "%.4g", v->number);
+    if (v->number == floor(v->number) && fabs(v->number) < 1e15) { SDL_snprintf(out, size, "%.0f", v->number); return; }
+    for (int digits = 1; digits <= 17; digits++) {
+        SDL_snprintf(out, size, "%.*g", digits, v->number);
+        if (SDL_strtod(out, NULL) == v->number) return;
+    }
 }
 
 static void load_microphones(void) {
@@ -595,7 +600,7 @@ static void general(void) {
     card_begin("Auto-paste permission");
     float x = pg.x, y = pg.y;
     if (button_at(&x, y, "accessibility-fix", "Fix auto-paste permission…", EH_BTN_PLAIN)) {
-        if (eh_paste_permitted()) say(&W.accessibility, ST_OK, "Auto-paste is allowed ✓");
+        if (eh_paste_permitted()) say(&W.accessibility, ST_OK, "Auto-paste is allowed");
         else {
             eh_paste_ask_permission();
             say(&W.accessibility, ST_PLAIN, "Allow Earheart under Privacy & Security ▸ Accessibility, then come back here.");
@@ -650,7 +655,7 @@ static void manage(eh_model_kind kind, engine_draft *d) {
             W.ask = ASK_REMOVE_MODEL;
             W.ask_model = m;
         }
-        SDL_strlcpy(line, "Downloaded ✓", sizeof line);
+        SDL_strlcpy(line, "Downloaded", sizeof line);
         tone_c = eh_ui_ink(W.ui, EH_OK, 1);
     } else if (job.active) {
         SDL_snprintf(id, sizeof id, "%s-model-cancel", prefix);
@@ -1070,7 +1075,7 @@ int eh_settings_window_frame(void) {
 
     // The header.
     gs_rect header = gs_cut_top(&area, 72);
-    eh_w_round(W.ui, (gs_rect){ 24, 18, 34, 34 }, 9, eh_rgba(EH_ACCENT, 1));
+    eh_w_icon(W.ui, (gs_rect){ 24, 18, 34, 34 });
     eh_w_line(W.ui, (gs_rect){ 71, 16, header.w - 90, 22 }, "Earheart", 16, eh_rgba(EH_TEXT, 1), -1);
     eh_w_line(W.ui, (gs_rect){ 71, 38, header.w - 90, 18 }, "Press the hotkey, speak, press it again — your words appear where you type.", 12, eh_rgba(EH_TEXT_DIM, 1), -1);
     gs_ui_fill(gs, (gs_rect){ 0, header.h - 1, header.w, 1 }, EH_SEAM);
@@ -1146,4 +1151,41 @@ int eh_settings_window_frame(void) {
     int again = eh_ui_end(W.ui);
     eh_unlock();
     return again;
+}
+
+/* ---------------- for tests ---------------- */
+
+struct eh_ui *eh_settings_window_ui(void) { return W.ui; }
+
+const char *eh_settings_window_text(const char *what) {
+    static const char *const ids[4] = { "hotkey", "pause-hotkey", "discard-hotkey", "correct-hotkey" };
+    static char status_id[40];
+    for (int i = 0; i < 4; i++) {
+        if (!SDL_strcmp(what, ids[i])) return W.hotkeys[i];
+        SDL_snprintf(status_id, sizeof status_id, "%s-status", ids[i]);
+        if (!SDL_strcmp(what, status_id)) return W.hotkey_status[i].tone == ST_NONE ? "" : W.hotkey_status[i].text;
+    }
+    const status *s = !SDL_strcmp(what, "save") ? &W.save : !SDL_strcmp(what, "stt-test") ? &W.stt.test : !SDL_strcmp(what, "stt-fetch") ? &W.stt.fetch
+                    : !SDL_strcmp(what, "cleanup-test") ? &W.cleanup.test : !SDL_strcmp(what, "cleanup-fetch") ? &W.cleanup.fetch : NULL;
+    if (s) return s->tone == ST_NONE ? "" : s->text;
+    if (!SDL_strcmp(what, "section")) return section_ids[W.section];
+    if (!SDL_strcmp(what, "max-seconds")) return W.max_seconds;
+    return "";
+}
+
+bool eh_settings_window_untouched(void) {
+    eh_jv *now = collect();
+    bool same = eh_jv_equal(now, W.base);
+    if (!same && SDL_getenv("EARHEART_SMOKE_VERBOSE")) {
+        for (int i = 0; i < W.base->count; i++) {
+            const eh_jv *a = W.base->items[i], *b = eh_jv_get(now, W.base->keys[i]);
+            if (eh_jv_equal(a, b)) continue;
+            char *was = eh_jv_write(a, false), *is = b ? eh_jv_write(b, false) : SDL_strdup("(missing)");
+            SDL_Log("%s: %s -> %s", W.base->keys[i], was, is);
+            SDL_free(was);
+            SDL_free(is);
+        }
+    }
+    eh_jv_free(now);
+    return same;
 }

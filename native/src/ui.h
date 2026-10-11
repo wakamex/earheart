@@ -38,6 +38,11 @@ void eh_ui_again(eh_ui *ui, int ms);  // asks for another frame within `ms`, for
 void eh_ui_inert(eh_ui *ui, bool inert, bool dim);
 void eh_ui_focus(eh_ui *ui, const char *id);  // NULL: nothing has the keyboard
 bool eh_ui_focused(eh_ui *ui, const char *id);
+// The Tab order of the frame last drawn, for tests: how many stops, the name of one, where one is.
+int eh_ui_stops(eh_ui *ui);
+const char *eh_ui_stop_name(eh_ui *ui, int index);
+bool eh_ui_stop_rect(eh_ui *ui, const char *id, gs_rect *r);
+const char *eh_ui_focus_name(eh_ui *ui);  // "" when nothing has the keyboard
 
 // The window's one scrolling page. `content_h` is the height the page turned out to have the last
 // time it was laid out. Returns the y at which the page's top is to be drawn; controls drawn until
@@ -51,6 +56,7 @@ void eh_scroll_to(eh_ui *ui, float y, bool glide);
 /* ---------------- drawing ---------------- */
 void eh_w_round(eh_ui *ui, gs_rect r, float radius, SDL_FColor fill);
 void eh_w_outline(eh_ui *ui, gs_rect r, float radius, SDL_FColor c);
+void eh_w_icon(eh_ui *ui, gs_rect r);  // the app's icon
 // One line, cut to fit; wrapped text from the top of r down, which returns its height.
 void eh_w_line(eh_ui *ui, gs_rect r, const char *text, float px, SDL_FColor c, int align);
 float eh_w_text(eh_ui *ui, gs_rect r, const char *text, float px, SDL_FColor c);

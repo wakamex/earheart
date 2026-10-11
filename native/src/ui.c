@@ -1,20 +1,24 @@
 #include "ui.h"
 #include <math.h>
 #include "draw.h"
+#include "icon_app.h"
+#include "stb_image.h"
 
 #define ORDER 256
 #define FOCUS_RING 2.0f
 
-typedef struct { Uint32 id; char name[56]; gs_rect r; bool field; } stop;
+typedef struct { Uint32 id; char name[56]; gs_rect r; bool field, paged; } stop;  // paged: on the scrolling page
 
 struct eh_ui {
     SDL_Window *win;
     SDL_Renderer *r;
     gs_ui *gs;
+    SDL_Texture *icon;
     bool close_asked, inert, dim;
     float mx, my;            // the pointer, in points
     float press_x, press_y;  // where the left button went down
     bool down, escape;
+    bool input;              // something was pressed, released, typed or scrolled since the last frame
     // The Tab order: the stops of the frame being drawn, and of the one before it, which Tab walks.
     stop order[ORDER], last[ORDER];
     int count, last_count;
@@ -60,6 +64,17 @@ eh_ui *eh_ui_new(const char *title, int w, int h, int min_w, int min_h) {
         return NULL;
     }
     if (min_w) SDL_SetWindowMinimumSize(ui->win, min_w, min_h);
+    // The app's icon: the window's, and a texture for the header.
+    int iw, ih, n;
+    unsigned char *pixels = stbi_load_from_memory(icon_app, sizeof icon_app, &iw, &ih, &n, 4);
+    SDL_Surface *icon = pixels ? SDL_CreateSurfaceFrom(iw, ih, SDL_PIXELFORMAT_RGBA32, pixels, iw * 4) : NULL;
+    if (icon) {
+        SDL_SetWindowIcon(ui->win, icon);
+        ui->icon = SDL_CreateTextureFromSurface(ui->r, icon);
+        if (ui->icon) SDL_SetTextureScaleMode(ui->icon, SDL_SCALEMODE_LINEAR);
+        SDL_DestroySurface(icon);
+    }
+    stbi_image_free(pixels);
     SDL_SetRenderVSync(ui->r, 1);
     ui->gs = gs_ui_new(ui->win, ui->r, eh_fonts());
     gs_ui_style *s = gs_ui_style_of(ui->gs);
@@ -81,6 +96,7 @@ eh_ui *eh_ui_new(const char *title, int w, int h, int min_w, int min_h) {
 
 void eh_ui_free(eh_ui *ui) {
     if (!ui) return;
+    if (ui->icon) SDL_DestroyTexture(ui->icon);
     gs_ui_free(ui->gs);
     SDL_DestroyRenderer(ui->r);
     SDL_DestroyWindow(ui->win);
@@ -162,7 +178,7 @@ static bool is_field_focused(eh_ui *ui) {
     return false;
 }
 
-bool eh_ui_event(eh_ui *ui, const SDL_Event *e) {
+static bool take_event(eh_ui *ui, const SDL_Event *e) {
     SDL_WindowID id = SDL_GetWindowID(ui->win);
     switch (e->type) {
     case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
@@ -224,12 +240,33 @@ bool eh_ui_event(eh_ui *ui, const SDL_Event *e) {
     return true;
 }
 
+bool eh_ui_event(eh_ui *ui, const SDL_Event *e) {
+    bool mine = take_event(ui, e);
+    if (mine && e->type != SDL_EVENT_MOUSE_MOTION) ui->input = true;
+    return mine;
+}
+
 void eh_ui_focus(eh_ui *ui, const char *id) {
     ui->focus = id ? hash(id) : 0;
     gs_ui_focus(ui->gs, NULL);
 }
 
 bool eh_ui_focused(eh_ui *ui, const char *id) { return ui->focus == hash(id); }
+int eh_ui_stops(eh_ui *ui) { return ui->count; }
+const char *eh_ui_stop_name(eh_ui *ui, int index) { return index >= 0 && index < ui->count ? ui->order[index].name : ""; }
+
+bool eh_ui_stop_rect(eh_ui *ui, const char *id, gs_rect *r) {
+    Uint32 h = hash(id);
+    for (int i = 0; i < ui->count; i++)
+        if (ui->order[i].id == h) { *r = ui->order[i].r; return true; }
+    return false;
+}
+
+const char *eh_ui_focus_name(eh_ui *ui) {
+    for (int i = 0; i < ui->count; i++)
+        if (ui->order[i].id == ui->focus) return ui->order[i].name;
+    return "";
+}
 
 void eh_ui_inert(eh_ui *ui, bool inert, bool dim) {
     ui->inert = inert || ui->asking;
@@ -260,7 +297,7 @@ gs_rect eh_ui_begin(eh_ui *ui) {
         ui->by_keyboard = true;
         gs_ui_focus(ui->gs, s->field ? s->name : NULL);
         // Brought into view, with room around it.
-        if (ui->scrolling && (s->r.y < ui->view.y + 12 || s->r.y + s->r.h > ui->view.y + ui->view.h - 12)) {
+        if (s->paged && (s->r.y < ui->view.y + 12 || s->r.y + s->r.h > ui->view.y + ui->view.h - 12)) {
             float mid = s->r.y + s->r.h / 2 - (ui->view.y + ui->view.h / 2);
             eh_scroll_to(ui, ui->scroll + mid, false);
         }
@@ -280,6 +317,9 @@ int eh_ui_end(eh_ui *ui) {
     ui->arrow = 0;
     ui->wheel = 0;
     ui->scrolling = false;
+    // What an input changed shows on the frame after the one that took it.
+    if (ui->input) want_frame(ui, 0);
+    ui->input = false;
     gs_ui_end(ui->gs);
     SDL_RenderPresent(ui->r);
     int gs = gs_ui_wait_ms(ui->gs);
@@ -321,7 +361,7 @@ void eh_scroll_reclip(eh_ui *ui) { gs_ui_clip(ui->gs, ui->scrolling ? &ui->view 
 float eh_scroll_y(eh_ui *ui) { return ui->scroll; }
 
 void eh_scroll_to(eh_ui *ui, float y, bool glide) {
-    if (glide) ui->target = y, ui->gliding = true;
+    if (glide) ui->target = y, ui->gliding = true, want_frame(ui, 16);
     else ui->scroll = y, ui->gliding = false;
 }
 
@@ -335,6 +375,10 @@ void eh_w_round(eh_ui *ui, gs_rect r, float radius, SDL_FColor fill) {
 void eh_w_outline(eh_ui *ui, gs_rect r, float radius, SDL_FColor c) {
     float s = gs_ui_scale(ui->gs);
     eh_stroke_round(ui->r, r.x * s, r.y * s, r.w * s, r.h * s, radius * s, SDL_max(1, floorf(s)), c);
+}
+
+void eh_w_icon(eh_ui *ui, gs_rect r) {
+    if (ui->icon) gs_ui_texture(ui->gs, r, ui->icon, NULL);
 }
 
 void eh_w_line(eh_ui *ui, gs_rect r, const char *text, float px, SDL_FColor c, int align) { gs_ui_text(ui->gs, r, text, px, c, align); }
@@ -359,7 +403,7 @@ static bool stop_at(eh_ui *ui, const char *id, gs_rect r, bool field) {
     Uint32 h = hash(id);
     if (ui->count < ORDER) {
         stop *s = &ui->order[ui->count++];
-        s->id = h, s->r = r, s->field = field;
+        s->id = h, s->r = r, s->field = field, s->paged = ui->scrolling;
         SDL_strlcpy(s->name, id, sizeof s->name);
     }
     return ui->focus == h;

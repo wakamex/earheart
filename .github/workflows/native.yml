@@ -51,6 +51,16 @@ jobs:
       - name: Check that the app starts and the engines load
         run: SDL_VIDEODRIVER=${{ runner.os == 'Linux' && 'dummy' || '' }} SDL_AUDIODRIVER=dummy zig-out/bin/earheart --smoke-test --engine-check
       # The remote engines against a stand-in for an OpenAI-compatible service.
+      - name: Install the X tools the end-to-end test drives
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb xdotool openbox imagemagick
+      - name: Drive the settings window
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a sh -c 'openbox & sleep 1; zig-out/bin/earheart settings-smoke tests/vectors/settings.json'
+          else
+            zig-out/bin/earheart settings-smoke tests/vectors/settings.json
+          fi
       - name: Dictate through a remote service
         run: tests/remote.sh
       # One dictation as a user makes it: hotkey, a recording as the microphone, hotkey, and the
@@ -62,9 +72,6 @@ jobs:
           enableCrossOsArchive: true
       - name: Fetch the small speech model
         run: zig-out/bin/earheart models --models ../models download stt/parakeet-tdt-0.6b-v3-int8
-      - name: Install the X tools the end-to-end test drives
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y xvfb xdotool openbox imagemagick
       - name: Dictate end to end
         env:
           EARHEART_MODELS: ${{ github.workspace }}/models

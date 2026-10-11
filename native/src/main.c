@@ -101,6 +101,7 @@ static int cmd_overlay_shot(int argc, char **argv) {
 }
 
 int eh_cmd_dictate(int argc, char **argv);  // dictate.c
+int eh_cmd_settings_smoke(int argc, char **argv);  // settings_smoke.c
 int eh_run(int argc, char **argv);          // run.c
 
 static int usage(void) {
@@ -367,6 +368,7 @@ int main(int argc, char **argv) {
     if (argc >= 2 && !SDL_strcmp(argv[1], "dictate")) return eh_cmd_dictate(argc - 2, argv + 2);
     if (argc >= 2 && !SDL_strcmp(argv[1], "models")) return cmd_models(argc - 2, argv + 2);
     if (argc >= 2 && !SDL_strcmp(argv[1], "overlay-shot")) return cmd_overlay_shot(argc - 2, argv + 2);
+    if (argc >= 2 && !SDL_strcmp(argv[1], "settings-smoke")) return eh_cmd_settings_smoke(argc - 2, argv + 2);
     if (argc >= 2 && (!SDL_strcmp(argv[1], "--help") || !SDL_strcmp(argv[1], "-h"))) { usage(); return 0; }
     // Anything else is the app itself: in the tray, or handing its arguments to the instance there.
     return eh_run(argc, argv);
