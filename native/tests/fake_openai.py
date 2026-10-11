@@ -7,7 +7,7 @@ in the folder given, so the test can assert on it afterwards, and answers:
   anything under /denied/         401, with the key in the body, which no message may repeat
 Usage: fake_openai.py PORT RECORD_DIR
 """
-import json, sys
+import json, socketserver, sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 port, record = int(sys.argv[1]), sys.argv[2]
@@ -51,4 +51,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, {"choices": [{"finish_reason": "stop", "message": {"content": f"<think>let me think</think>Cleaned: {user}"}}]})
         self.reply(404, {})
 
-HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+class Server(HTTPServer):
+    # HTTPServer looks up the host's own name while binding, which takes seconds on some machines.
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+Server(("127.0.0.1", port), Handler).serve_forever()

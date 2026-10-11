@@ -11,8 +11,14 @@ port=$((20000 + RANDOM % 20000))
 python3 tests/fake_openai.py $port "$work" &
 server=$!
 trap 'kill $server 2>/dev/null; rm -rf "$work"' EXIT
-sleep 1
 fail() { echo "FAILED: $*"; exit 1; }
+# Waits for the service to answer before anything is asked of it.
+up=
+for i in $(seq 150); do
+    python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:$port/v1/models', timeout=1)" 2>/dev/null && { up=1; break; }
+    sleep 0.2
+done
+[ -n "$up" ] || fail "the stand-in service did not start"
 dictate() {  # $1: base URL
     "$bin/earheart" dictate --wav tests/audio/fleurs-en_us-1904.wav --talk 3 --data "$work/data-$RANDOM" \
         --set 'stt.engine="remote"' --set "stt.baseUrl=\"$1\"" --set 'stt.apiKey="sk-secret"' --set 'stt.model="remote-stt"' --set 'stt.language="en"' \
