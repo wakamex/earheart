@@ -281,9 +281,9 @@ int eh_run(int argc, char **argv) {
 
     int status = 0;
     if (smoke) {
-        // Far enough to have started everything; then the engines, when asked.
-        Uint64 until = SDL_GetTicks() + 500;
-        for (SDL_Event e; SDL_GetTicks() < until;) while (SDL_PollEvent(&e)) {}
+        // Everything is started; the queue is emptied once, then the engines are checked when asked.
+        for (SDL_Event e; SDL_PollEvent(&e);) {}
+        eh_loop_drain();
         if (check && !engine_check()) status = 1;
     } else {
         for (SDL_Event e; SDL_WaitEvent(&e);) {
