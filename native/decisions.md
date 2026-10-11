@@ -388,3 +388,24 @@ The gate is a word ratio of at least 0.95 and a WER no more than 3 points above 
 The speech engine dying: `earheart dictate --kill-stt-at-stop` makes every decode from the stop on kill the worker, the retry on a fresh worker included. The dictation still ends "done": the text the live preview had committed is delivered and written to history marked incomplete, with the "transcription interrupted" notice. `tests/e2e.sh` checks this on every CI run.
 
 The remote (OpenAI-compatible) engines: `tests/remote.sh` runs a dictation transcribed and cleaned over HTTP against a stand-in service (`tests/fake_openai.py`) and checks the upload is a well-formed form with the model, language and API key, that the cleanup request carries no sampling settings strict servers refuse, and that a 401 comes back as "STT service error 401 — check the API key in Settings" without repeating the service's answer. It runs on all three systems in CI. The stand-in is written for this test, so the request shapes are checked against the Electron client's code and not against a real service.
+
+### M4: overlay (2026-10-11)
+
+The overlay is `src/overlay.c` on the drawing helpers of `src/draw.c`: a 500 point bar at the bottom centre of the main display with the live transcript in two layers, the state and its dot, the waveform, the timer, the phase's progress bar and the pause, done and discard keys. It fades over 200 ms, grows upward with the transcript, is dragged by its body, and remembers where it was put.
+
+| Check | How | Result |
+|---|---|---|
+| States, keys, timer, countdown to the cap, progress and its hold, detail lines, the card growing | `tests/overlay.c`, a port of the overlay's own checks in `scripts/overlay-smoke.js`: a dictation's views stepped through the overlay's state and drawn without a window, with the layout and the pixels read back | its 44 checks pass on Linux, macOS and Windows in CI |
+| The app dictated into keeps the keyboard | `tests/e2e.sh` asks the window system mid-recording (Linux, under Openbox), and on all three systems the paste then lands in the focused test window | pass in CI on ubuntu-24.04, windows-2025 and macos-15; on the rented Mac the paste landed in TextEdit with the overlay showing |
+| The look | `earheart overlay-shot` frames beside the README's screenshots; a screenshot of each system's screen mid-recording kept by CI | the same layout, colours and marks; the differences are the two in the parity list (font weight and face) |
+
+The microphone's own checks of `scripts/overlay-smoke.js` (a missing device falling back once, a stale stream from an abandoned start, the paused span left out of the capture) belong to `src/recorder.c` here and are not ported as tests yet; the recorder is covered by `tests/e2e.sh` and `earheart dictate`.
+
+Decisions:
+
+- The overlay draws itself with SDL's renderer and does not use gesso's widget set, whose controls are square and have no opacity. gesso's agent has rounded shapes and opacity on its list; `src/draw.c` is the stopgap.
+- Its state is a pure step from what the app says to a model, so it is tested without a window or a display.
+- On macOS the paste is a Command key press around the V. A V carrying only the Command flag is read as a paste by Cocoa apps and as a plain V by apps that track modifier keys themselves, SDL's among them.
+
+Found while testing it, and fixed: the engine client writing to a worker whose pipe had just closed (Windows), the start-up check waiting on a hotkey registration that waited on it (macOS), a second instance's request arriving before the first had finished starting (a crash), and the bar staying where the system first put it until the transcript grew.
+
