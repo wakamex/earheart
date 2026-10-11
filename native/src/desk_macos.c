@@ -101,19 +101,23 @@ void eh_paste_ask_permission(void) {
 eh_paste_result eh_paste_keystroke(char *detail, size_t detail_size) {
     // Without Accessibility the events are dropped without a word, so it is asked first.
     if (!AXIsProcessTrusted()) return EH_PASTE_NOT_PERMITTED;
+    // The Command key goes down and up around the V, as a hand does it. Most apps read the V's own
+    // Command flag, but those that follow the modifier keys themselves (SDL's, for one) see a
+    // plain V without it.
     CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
-    CGEventRef down = CGEventCreateKeyboardEvent(source, kVK_ANSI_V, true), up = CGEventCreateKeyboardEvent(source, kVK_ANSI_V, false);
-    bool ok = down && up;
-    if (ok) {
-        CGEventSetFlags(down, kCGEventFlagMaskCommand);
-        CGEventSetFlags(up, kCGEventFlagMaskCommand);
-        CGEventPost(kCGHIDEventTap, down);
-        CGEventPost(kCGHIDEventTap, up);
-    } else {
-        SDL_strlcpy(detail, "the keyboard events could not be made", detail_size);
+    static const struct { CGKeyCode key; bool down; CGEventFlags flags; } keys[] = {
+        { kVK_Command, true, kCGEventFlagMaskCommand }, { kVK_ANSI_V, true, kCGEventFlagMaskCommand },
+        { kVK_ANSI_V, false, kCGEventFlagMaskCommand }, { kVK_Command, false, 0 },
+    };
+    CGEventRef events[4];
+    bool ok = true;
+    for (int i = 0; i < 4; i++) ok = (events[i] = CGEventCreateKeyboardEvent(source, keys[i].key, keys[i].down)) && ok;
+    for (int i = 0; ok && i < 4; i++) {
+        CGEventSetFlags(events[i], keys[i].flags);
+        CGEventPost(kCGHIDEventTap, events[i]);
     }
-    if (down) CFRelease(down);
-    if (up) CFRelease(up);
+    if (!ok) SDL_strlcpy(detail, "the keyboard events could not be made", detail_size);
+    for (int i = 0; i < 4; i++) if (events[i]) CFRelease(events[i]);
     if (source) CFRelease(source);
     return ok ? EH_PASTE_SENT : EH_PASTE_FAILED;
 }
