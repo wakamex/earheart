@@ -3,6 +3,11 @@
 //   earheart clean [--models DIR] [--model ID] [--cpu] [--system FILE] [--temperature T] [--tokens] TEXT
 //                                             print TEXT cleaned up ("-" reads it from standard input);
 //                                             --tokens prints the prompt's tokens instead, for tests
+//   earheart clean [--models DIR] [--model ID] [--cpu] --batch
+//                                             one clean per line of standard input, each a JSON object
+//                                             {"systemPrompt", "transcript", "temperature", "topP", "topK",
+//                                             "minP", "seed", "fresh"}, answered by a line {"text", "ms"}
+//                                             or {"error", "ms"}; for the benchmark
 //   earheart --engine stt|cleanup             an engine worker, started by the app (see engine.h)
 // Both commands go through the engine workers, as dictation does.
 #include <SDL3/SDL.h>
@@ -14,7 +19,8 @@
 
 static int usage(void) {
     fprintf(stderr, "usage: earheart transcribe [--models DIR] [--model ID] [--json] FILE.wav...\n"
-                    "       earheart clean [--models DIR] [--model ID] [--cpu] [--system FILE] [--temperature T] [--tokens] TEXT\n");
+                    "       earheart clean [--models DIR] [--model ID] [--cpu] [--system FILE] [--temperature T] [--tokens] TEXT\n"
+                    "       earheart clean [--models DIR] [--model ID] [--cpu] --batch < requests.jsonl\n");
     return 2;
 }
 
@@ -95,10 +101,47 @@ static char *read_stdin(void) {
     return buf;
 }
 
+static int clean_batch(const char *path, bool cpu) {
+    eh_engine *e = eh_engine_new("cleanup");
+    char *line = NULL;
+    size_t cap = 1 << 20;
+    line = SDL_malloc(cap);
+    while (fgets(line, (int)cap, stdin)) {
+        gs_json *doc = gs_json_parse(line, SDL_strlen(line));
+        gs_jv v = gs_json_root(doc);
+        if (!doc) continue;
+        eh_jw w;
+        eh_jw_begin(&w);
+        eh_jw_str(&w, "type", "clean");
+        eh_jw_str(&w, "modelPath", path);
+        eh_jw_bool(&w, "cpuOnly", cpu);
+        eh_jw_str(&w, "systemPrompt", gs_json_str(gs_json_get(v, "systemPrompt"), ""));
+        eh_jw_str(&w, "transcript", gs_json_str(gs_json_get(v, "transcript"), ""));
+        static const char *const numbers[] = { "temperature", "topP", "topK", "minP", "seed" };
+        for (size_t k = 0; k < SDL_arraysize(numbers); k++)
+            if (gs_json_get(v, numbers[k])) eh_jw_num(&w, numbers[k], gs_json_num(gs_json_get(v, numbers[k]), 0));
+        eh_jw_bool(&w, "fresh", gs_json_bool(gs_json_get(v, "fresh"), false));
+        eh_engine_msg msg;
+        Uint64 t0 = SDL_GetTicks();
+        bool ok = eh_engine_wait(e, eh_engine_send(e, &w, NULL, 0), &msg, NULL, NULL);
+        eh_jw_begin(&w);
+        eh_jw_str(&w, ok ? "text" : "error", gs_json_str(gs_json_get(msg.v, ok ? "text" : "error"), ""));
+        eh_jw_num(&w, "ms", (double)(SDL_GetTicks() - t0));
+        char *out = eh_jw_end(&w);
+        puts(out);
+        fflush(stdout);
+        SDL_free(out);
+        gs_json_free(msg.doc);
+        gs_json_free(doc);
+    }
+    eh_engine_free(e);
+    return 0;
+}
+
 static int cmd_clean(int argc, char **argv) {
     const char *models = SDL_getenv("EARHEART_MODELS"), *id = NULL, *system_file = NULL;
     double temperature = -1;
-    bool cpu = false, tokens = false;
+    bool cpu = false, tokens = false, batch = false;
     int i = 0;
     for (; i < argc && argv[i][0] == '-' && argv[i][1]; i++) {
         if (!SDL_strcmp(argv[i], "--models") && i + 1 < argc) models = argv[++i];
@@ -107,13 +150,15 @@ static int cmd_clean(int argc, char **argv) {
         else if (!SDL_strcmp(argv[i], "--temperature") && i + 1 < argc) temperature = SDL_atof(argv[++i]);
         else if (!SDL_strcmp(argv[i], "--cpu")) cpu = true;
         else if (!SDL_strcmp(argv[i], "--tokens")) tokens = true;
+        else if (!SDL_strcmp(argv[i], "--batch")) batch = true;
         else return usage();
     }
-    if (i != argc - 1 || !models) return usage();
+    if (i != argc - (batch ? 0 : 1) || !models) return usage();
     const eh_model *m = eh_catalog_find(EH_MODEL_CLEANUP, id);
     if (!m) { fprintf(stderr, "earheart: no cleanup model \"%s\"\n", id); return 2; }
     char path[1024];
     SDL_snprintf(path, sizeof path, "%s/cleanup/%s/%s", models, m->id, m->gguf);
+    if (batch) return clean_batch(path, cpu);
     char *text = SDL_strcmp(argv[i], "-") ? SDL_strdup(argv[i]) : read_stdin();
     char *system_prompt = system_file ? SDL_LoadFile(system_file, NULL) : SDL_strdup("SYSTEM PROMPT");
     if (!system_prompt) { fprintf(stderr, "earheart: %s: %s\n", system_file, SDL_GetError()); return 1; }

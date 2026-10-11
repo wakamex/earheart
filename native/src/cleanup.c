@@ -130,6 +130,11 @@ void eh_cleanup_unload(void) {
     L.held_count = 0;
 }
 
+void eh_cleanup_forget(void) {
+    if (L.ctx) L.memory_rm(L.memory(L.ctx), 0, 0, -1);
+    L.held_count = 0;
+}
+
 static bool contains_nocase(const char *hay, const char *needle) { return hay && SDL_strcasestr(hay, needle); }
 
 // Which prompt the model gets. The catalogue's families are written out exactly as the Electron
@@ -316,7 +321,7 @@ static struct llama_sampler *make_sampler(const eh_sampling *s) {
     L.chain_add(chain, L.s_top_p(s && s->top_p >= 0 ? s->top_p : 0.95f, 1));
     if (s && s->min_p > 0) L.chain_add(chain, L.s_min_p(s->min_p, 1));
     L.chain_add(chain, L.s_temp(temperature));
-    L.chain_add(chain, L.s_dist((uint32_t)SDL_GetTicksNS()));
+    L.chain_add(chain, L.s_dist(s && s->seed ? s->seed : (uint32_t)SDL_GetTicksNS()));
     return chain;
 }
 

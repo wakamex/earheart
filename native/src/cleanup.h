@@ -14,6 +14,7 @@ typedef struct {
     float top_p;        // negative: the default, 0.95
     int top_k;          // 0 or less: the default, 40
     float min_p;        // 0 or less: off
+    unsigned seed;      // 0: a new one each time
 } eh_sampling;
 
 // The turn the model is given: the rules, the transcript labelled as data, and a cue so that it
@@ -41,5 +42,6 @@ bool eh_cleanup_prime(const char *text, SDL_AtomicInt *cancel);
 int *eh_cleanup_prompt_tokens(const char *turn, int *count);
 int eh_cleanup_count_tokens(const char *text);  // -1 when nothing is loaded
 
+void eh_cleanup_forget(void);  // empties the context, so the next prompt is read from its start
 void eh_cleanup_unload(void);
 const char *eh_cleanup_error(void);

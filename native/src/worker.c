@@ -240,7 +240,9 @@ static void cleanup_serve(request *r) {
             .top_p = (float)gs_json_num(gs_json_get(r->v, "topP"), -1),
             .top_k = (int)gs_json_num(gs_json_get(r->v, "topK"), 0),
             .min_p = (float)gs_json_num(gs_json_get(r->v, "minP"), 0),
+            .seed = (unsigned)gs_json_num(gs_json_get(r->v, "seed"), 0),
         };
+        if (gs_json_bool(gs_json_get(r->v, "fresh"), false)) eh_cleanup_forget();
         progress_state p = { r->id, 0 };
         char *text = eh_cleanup_clean(gs_json_str(gs_json_get(r->v, "systemPrompt"), ""), gs_json_str(gs_json_get(r->v, "transcript"), ""),
                                       &s, clean_progress, &p, &r->cancel);
