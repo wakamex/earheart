@@ -370,11 +370,11 @@ static void place(void) {
 }
 
 // The window grows upward with the transcript: its bottom edge stays where it is.
-static void fit(float needed) {
+static void fit(float needed, bool moved) {
     SDL_Rect area;
     SDL_GetDisplayUsableBounds(SDL_GetDisplayForWindow(O.window), &area);
     float cap = SDL_max((float)EH_OVERLAY_HEIGHT, (float)area.h - 48), target = SDL_clamp(floorf(needed + 0.5f), (float)EH_OVERLAY_HEIGHT, cap);
-    if (target == O.height && O.placed) return;
+    if (target == O.height && !moved) return;
     O.height = target;
     int y = SDL_max(area.y, O.base_y + EH_OVERLAY_HEIGHT - (int)target);
     SDL_SetWindowSize(O.window, EH_OVERLAY_WIDTH, (int)target);
@@ -571,7 +571,7 @@ int eh_overlay_frame(void) {
         O.fade_from = now;
         if (wanted) {
             if (!O.placed) place();
-            fit(O.height);
+            fit(O.height, true);
             SDL_ShowWindow(O.window);
         }
     }
@@ -586,7 +586,7 @@ int eh_overlay_frame(void) {
         if (scale <= 0) scale = 1;
         float needed = eh_overlay_draw_with(O.renderer, O.glyphs, &m, EH_OVERLAY_WIDTH, O.height, scale, O.opacity, &O.layout);
         SDL_RenderPresent(O.renderer);
-        fit(needed);
+        fit(needed, false);
         if (fading || gs_glyphs_waiting(O.glyphs)) again = 16;
     }
     SDL_free(clean);
