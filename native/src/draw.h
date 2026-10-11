@@ -12,3 +12,6 @@ void eh_fill_circle(SDL_Renderer *r, float cx, float cy, float radius, SDL_FColo
 void eh_line(SDL_Renderer *r, float x0, float y0, float x1, float y1, float width, SDL_FColor c);
 void eh_fill_triangle(SDL_Renderer *r, float x0, float y0, float x1, float y1, float x2, float y2, SDL_FColor c);
 SDL_FColor eh_rgba(unsigned rgb, float alpha);  // 0xRRGGBB and an opacity
+
+// The system's interface font with its fallbacks, shared by every window.
+struct gs_fontset *eh_fonts(void);

@@ -149,12 +149,9 @@ static void draw_key(const pen *p, const eh_overlay_model *m, int kind, float cx
 #undef L
 }
 
-static struct { gs_fontset *fonts; } shared;
-
 static float eh_overlay_draw_with(SDL_Renderer *r, gs_glyphs *glyphs, const eh_overlay_model *m, float width, float height, float scale, float opacity, eh_overlay_layout *out) {
     eh_overlay_layout layout = { 0 };
-    if (!shared.fonts) shared.fonts = gs_fontset_system();
-    pen p = { shared.fonts, glyphs, r, scale, opacity };
+    pen p = { eh_fonts(), glyphs, r, scale, opacity };
     float s = scale, card_w = width - 2 * MARGIN;
     bool recording = !SDL_strcmp(m->status, "recording"), live = recording || !SDL_strcmp(m->status, "paused") || !SDL_strcmp(m->status, "starting");
 

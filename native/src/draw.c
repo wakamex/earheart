@@ -1,5 +1,6 @@
 #include "draw.h"
 #include <math.h>
+#include "gs_text.h"
 
 #define ARC 10  // segments in a quarter circle
 
@@ -89,4 +90,10 @@ void eh_line(SDL_Renderer *r, float x0, float y0, float x1, float y1, float widt
 void eh_fill_triangle(SDL_Renderer *r, float x0, float y0, float x1, float y1, float x2, float y2, SDL_FColor c) {
     const SDL_FPoint p[3] = { { x0, y0 }, { x1, y1 }, { x2, y2 } };
     fill_convex(r, p, 3, c);
+}
+
+struct gs_fontset *eh_fonts(void) {
+    static gs_fontset *fonts;
+    if (!fonts) fonts = gs_fontset_system();
+    return fonts;
 }
