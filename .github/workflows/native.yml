@@ -64,10 +64,11 @@ jobs:
         run: zig-out/bin/earheart models --models ../models download stt/parakeet-tdt-0.6b-v3-int8
       - name: Install the X tools the end-to-end test drives
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y xvfb xdotool openbox
+        run: sudo apt-get update && sudo apt-get install -y xvfb xdotool openbox imagemagick
       - name: Dictate end to end
         env:
           EARHEART_MODELS: ${{ github.workspace }}/models
+          EARHEART_E2E_SHOT: ${{ runner.temp }}/overlay-${{ matrix.os }}.png
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
             # A crash of either program leaves a core to read the stack from.
@@ -82,3 +83,10 @@ jobs:
             exit ${status:-0}
           fi
           tests/e2e.sh
+      - name: Keep the screen as it was mid-recording
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: overlay-${{ matrix.os }}
+          path: ${{ runner.temp }}/overlay-${{ matrix.os }}.png
+          if-no-files-found: ignore

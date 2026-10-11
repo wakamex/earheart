@@ -21,6 +21,16 @@ case "$(uname -s)" in
     Darwin) press() { "$bin/earheart" --toggle; } ;;
     *) press() { "$bin/paste-target" --hotkey; } ;;
 esac
+# With EARHEART_E2E_SHOT=<file.png> the screen is saved mid-recording, to look at the overlay.
+shot() {
+    [ -n "${EARHEART_E2E_SHOT:-}" ] || return 0
+    case "$(uname -s)" in
+        Linux) import -window root "$EARHEART_E2E_SHOT" ;;
+        Darwin) screencapture -x "$EARHEART_E2E_SHOT" ;;
+        *) powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; \$b=[System.Windows.Forms.SystemInformation]::VirtualScreen; \$i=New-Object System.Drawing.Bitmap \$b.Width,\$b.Height; [System.Drawing.Graphics]::FromImage(\$i).CopyFromScreen(\$b.Left,\$b.Top,0,0,\$i.Size); \$i.Save('$(cygpath -w "$EARHEART_E2E_SHOT")')" ;;
+    esac || echo "no screenshot taken"
+    EARHEART_E2E_SHOT=
+}
 export EARHEART_DATA=$(mktemp -d) EARHEART_FAKE_MIC=$wav
 # The small speech model, no cleanup, clipboard restore on, and the default hotkey.
 cat > "$EARHEART_DATA/settings.json" <<JSON
@@ -57,6 +67,7 @@ run() {  # $1: how the dictation is started and stopped; $2: what to call it
             xdotool search --onlyvisible --name '^Earheart$' >/dev/null || fail "$2: no overlay on screen while recording"
             [ "$(xdotool getwindowfocus getwindowname)" = paste-target ] || fail "$2: the overlay took the keyboard from the focused window"
         fi
+        shot
         sleep $((talk - 3)); $1
         wait $target || fail "$2: nothing was pasted"
         pasted=$(sed -n 's/^pasted: //p' "$EARHEART_DATA/target.out" | tr -d '\r')
