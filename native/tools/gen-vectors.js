@@ -9,6 +9,8 @@ const path = require("node:path");
 const split = require("../../main/util/split-silence");
 const { quietestOffset } = require("../../renderer/chunk-boundary");
 const { containsSpeech } = require("../../renderer/speech-probe");
+const { transcribeChunked, EVERY_PAUSE } = require("../../main/chunked-decode");
+const wavUtil = require("../../main/util/wav");
 
 function mulberry32(a) {
   return () => {
@@ -128,3 +130,101 @@ const probes = [
 ].map((parts, i) => ({ seed: 1000 + i, sampleRate: 16000, parts, speech: containsSpeech(render(parts, 16000, 1000 + i), 16000) }));
 fs.writeFileSync(path.join(__dirname, "../tests/vectors/audio.json"), JSON.stringify({ cases, probes }) + "\n");
 console.log(`audio.json: ${cases.length} recordings, ${cases.reduce((n, c) => n + c.results.reduce((m, r) => m + r.cuts.length, 0), 0)} cuts`);
+
+/* ---------------- chunked decode ---------------- */
+
+// The PCM of a WAV as one number, exact in both languages.
+function pcmFingerprint(wav) {
+  let sum = 0;
+  for (let i = 44; i + 1 < wav.length; i += 2) sum = (sum + wav.readUInt16LE(i) * ((i >> 1) % 251 + 1)) >>> 0;
+  return sum;
+}
+
+const CODES = { ENGINE_EXITED: "exit", ENGINE_TIMEOUT: "timeout", EMPTY_SPEECH: "empty_speech" };
+
+async function chunkedCase(seed) {
+  const rand = mulberry32(seed * 7919);
+  const parts = recipe(seed).slice(0, 4 + Math.floor(rand() * 14));
+  // Some recordings are nothing but room tone or a click, and one is empty.
+  if (seed % 11 === 0) parts.length = 0;
+  if (seed % 13 === 0) parts.splice(0, parts.length, [1.5, 0.002], [0.05, 0.4], [1.2, 0.002]);
+  const samples = render(parts, 16000, seed);
+  const wav = wavUtil.encodeWav(wavUtil.toPcm16(samples), 16000);
+  const frames = samples.length;
+  // What the fake decoder answers, call by call; past the end of the script it answers normally.
+  const script = [];
+  const trouble = rand();
+  for (let i = 0; i < 40; i++) {
+    const x = rand();
+    if (trouble < 0.35) script.push("ok");
+    else if (trouble < 0.5) script.push(x < 0.5 ? "exit" : "ok");
+    else if (trouble < 0.6) script.push("exit");
+    else script.push(x < 0.55 ? "ok" : x < 0.7 ? "empty" : x < 0.8 ? "exit" : x < 0.88 ? "timeout" : x < 0.95 ? "error" : "space");
+  }
+  const salvageChunks = [];
+  if (rand() < 0.5 && frames > 32000) {
+    let at = Math.floor(rand() * 8000);
+    const n = 1 + Math.floor(rand() * 4);
+    for (let i = 0; i < n && at < frames; i++) {
+      const to = Math.min(frames, at + 16000 + Math.floor(rand() * 16000 * 12));
+      salvageChunks.push({ from: at, to, text: `salvage${i}` });
+      at = rand() < 0.2 ? to - 4000 : to + (rand() < 0.5 ? 0 : Math.floor(rand() * 16000));
+    }
+    if (rand() < 0.3) salvageChunks.reverse();
+  }
+  const opts = {
+    prefixText: rand() < 0.3 ? "prefix words" : "",
+    salvageText: salvageChunks.length && rand() < 0.7 ? salvageChunks.map((c) => c.text).join(" ") : "",
+    everyPause: rand() < 0.2,
+    maxSec: rand() < 0.2 ? 8 : 20,
+  };
+  const calls = [];
+  let restarts = 0;
+  let decodeMs = 0;
+  const runTranscribe = async (piece, { onDecodeMs }) => {
+    const n = wavUtil.wavSampleFrames(piece);
+    const outcome = script[calls.length] || "ok";
+    calls.push([n, pcmFingerprint(piece)]);
+    if (outcome === "exit") throw Object.assign(new Error("engine process exited"), { code: "ENGINE_EXITED" });
+    if (outcome === "timeout") throw Object.assign(new Error("engine request timed out"), { code: "ENGINE_TIMEOUT" });
+    if (outcome === "error") throw new Error("model exploded");
+    onDecodeMs(n % 97);
+    return outcome === "empty" ? "" : outcome === "space" ? "  " : ` t${n} `;
+  };
+  let result = null;
+  let threw = null;
+  try {
+    result = await transcribeChunked(wav, {
+      runTranscribe,
+      restartStt: () => restarts++,
+      maxSec: opts.maxSec,
+      ...(opts.everyPause ? EVERY_PAUSE : {}),
+      prefixText: opts.prefixText,
+      salvageChunks,
+      salvageText: opts.salvageText,
+      onDecodeMs: (ms) => (decodeMs += ms),
+    });
+  } catch (err) {
+    threw = { code: CODES[err?.code] || "failed", message: err?.message || "" };
+  }
+  return {
+    seed, parts, frames, script, salvageChunks, opts, calls, restarts, decodeMs, threw,
+    result: result && {
+      text: result.text,
+      partial: result.partial,
+      pieces: result.pieces.map((p) => [p.fromFrame, p.toFrame, p.group, p.attempts, !!p.ok, !!p.skipped, !!p.noise, !!p.unconfirmed, p.text || "", p.ok ? "" : CODES[p.code] || (p.error ? "failed" : "")]),
+    },
+  };
+}
+
+(async () => {
+  const chunked = [];
+  for (let seed = 1; seed <= 120; seed++) chunked.push(await chunkedCase(seed));
+  fs.writeFileSync(path.join(__dirname, "../tests/vectors/chunked.json"), JSON.stringify({ cases: chunked }) + "\n");
+  const count = (f) => chunked.filter(f).length;
+  console.log(
+    `chunked.json: ${chunked.length} dictations, ${count((c) => c.threw)} failed outright, ${count((c) => c.result?.partial)} partial, ` +
+      `${count((c) => c.salvageChunks.length)} with salvage, ${count((c) => c.result?.pieces.some((p) => p[6]))} with noise pieces, ` +
+      `${count((c) => c.result?.pieces.some((p) => p[7]))} with unconfirmed pieces, ${count((c) => c.result?.pieces.some((p) => p[5]))} with skipped pieces`
+  );
+})();

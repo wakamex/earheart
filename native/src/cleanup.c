@@ -350,7 +350,7 @@ char *eh_cleanup_clean(const char *system_prompt, const char *transcript, const 
     // of the transcript, and a cleaned text that loses the user's words is worse than none.
     int needed = turn_tokens + transcript_tokens + EH_CLEAN_SLACK_TOKENS, available = (int)L.n_ctx(L.ctx);
     if (needed > available || prompt.n >= available) {
-        SDL_snprintf(L.error, sizeof L.error, "This dictation is too long to clean up in one pass (it needs %d tokens of context and the model has %d)", needed, available);
+        SDL_snprintf(L.error, sizeof L.error, "Transcript too long to clean up in one pass (needs ~%d tokens of context, have %d)", needed, available);
         SDL_free(prompt.v);
         return NULL;
     }
@@ -369,7 +369,7 @@ char *eh_cleanup_clean(const char *system_prompt, const char *transcript, const 
         if (L.is_eog(L.vocab, tok)) break;
         // Reaching the limit means the model never finished: it reasoned, looped or wrote past the
         // transcript. Half a cleanup is not worth the user's words, so the caller keeps the raw text.
-        if (i >= max_tokens) { SDL_strlcpy(L.error, "The cleanup model did not finish within the length of the transcript", sizeof L.error); failed = true; break; }
+        if (i >= max_tokens) { SDL_strlcpy(L.error, "Cleanup reached its output token limit before finishing", sizeof L.error); failed = true; break; }
         char piece[256];
         int n = L.piece(L.vocab, tok, piece, sizeof piece, 0, false);
         if (n > 0) {

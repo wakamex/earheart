@@ -82,7 +82,7 @@ for (const [n, t] of turns.entries()) {
   const r = await clean(t);
   // The native build reports a reply that ran to the token cap as an error; the benchmark scores
   // that as the raw transcript being delivered.
-  const runaway = !!r.error && /did not finish/.test(r.error);
+  const runaway = !!r.error && /output token limit/.test(r.error);
   if (r.error && !runaway) throw new Error(`${t.corpus}/${t.style}#${t.index} s${t.seed}: ${r.error}`);
   const output = runaway ? "" : r.text;
   const stopReason = runaway ? "maxTokens" : "eogToken";

@@ -49,3 +49,60 @@ double eh_wav_seconds(const uint8_t *buf, size_t len) {
     double s = (double)w.data_size / 2 / (w.channels > 1 ? w.channels : 1) / (w.rate > 1 ? w.rate : 1);
     return s > 0.01 ? s : 0.01;
 }
+
+int eh_wav_frames(const uint8_t *buf, size_t len) {
+    if (len < 12 || memcmp(buf, "RIFF", 4)) return 0;
+    eh_wav_info w = eh_wav_parse(buf, len);
+    return (int)(w.data_size / 2 / (size_t)(w.channels > 1 ? w.channels : 1));
+}
+
+static void put32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24); }
+static void put16(uint8_t *p, uint16_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
+
+// The canonical 44-byte mono PCM16 header.
+static uint8_t *header(uint32_t data_size, int rate, size_t *len) {
+    uint8_t *buf = SDL_malloc(44 + (size_t)data_size);
+    memcpy(buf, "RIFF", 4); put32(buf + 4, 36 + data_size);
+    memcpy(buf + 8, "WAVEfmt ", 8); put32(buf + 16, 16);
+    put16(buf + 20, 1); put16(buf + 22, 1);
+    put32(buf + 24, (uint32_t)rate); put32(buf + 28, (uint32_t)rate * 2);
+    put16(buf + 32, 2); put16(buf + 34, 16);
+    memcpy(buf + 36, "data", 4); put32(buf + 40, data_size);
+    *len = 44 + (size_t)data_size;
+    return buf;
+}
+
+uint8_t *eh_wav_encode(const int16_t *samples, int count, int rate, size_t *len) {
+    uint8_t *buf = header((uint32_t)count * 2, rate, len);
+    for (int i = 0; i < count; i++) put16(buf + 44 + i * 2, (uint16_t)samples[i]);
+    return buf;
+}
+
+int16_t *eh_wav_pcm16(const float *samples, int count, int pad) {
+    int16_t *pcm = SDL_calloc((size_t)(count + 2 * pad) + 1, sizeof(int16_t));
+    for (int i = 0; i < count; i++) {
+        double x = SDL_floor((double)samples[i] * 32768.0 + 0.5);
+        pcm[pad + i] = (int16_t)(x < -32768 ? -32768 : x > 32767 ? 32767 : x);
+    }
+    return pcm;
+}
+
+uint8_t *eh_wav_encode_recorded(const float *samples, int count, int rate, size_t *len) {
+    uint8_t *buf = header((uint32_t)count * 2, rate, len);
+    for (int i = 0; i < count; i++) {
+        double s = samples[i] < -1 ? -1 : samples[i] > 1 ? 1 : (double)samples[i];
+        put16(buf + 44 + i * 2, (uint16_t)(int16_t)(s < 0 ? s * 32768.0 : s * 32767.0));
+    }
+    return buf;
+}
+
+uint8_t *eh_wav_slice(const uint8_t *buf, size_t len, long long from, long long to, size_t *out_len) {
+    eh_wav_info w = eh_wav_parse(buf, len);
+    if (!w.data_offset || w.format != 1 || w.bits != 16 || w.channels != 1) return NULL;
+    long long frames = (long long)(w.data_size / 2);
+    from = from < 0 ? 0 : from > frames ? frames : from;
+    to = to < from ? from : to > frames ? frames : to;
+    uint8_t *out = header((uint32_t)(to - from) * 2, w.rate, out_len);
+    memcpy(out + 44, buf + w.data_offset + from * 2, (size_t)(to - from) * 2);
+    return out;
+}

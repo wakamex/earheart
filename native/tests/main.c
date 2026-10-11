@@ -181,6 +181,7 @@ static void test_prompts(const char *models, const char *fixture) {
 int main(int argc, char **argv) {
     if (argc >= 3 && !strcmp(argv[1], "--engine")) return eh_worker_main(argv[2]);
     setvbuf(stdout, NULL, _IOLBF, 0);
+    SDL_SetLogPriorities(SDL_LOG_PRIORITY_CRITICAL);  // the failures the tests provoke are logged by design
     const struct { const char *name; void (*fn)(void); } tests[] = { { "wav", test_wav }, { "jw", test_jw }, { "turn", test_turn } };
     for (size_t i = 0; i < SDL_arraysize(tests); i++) {
         int before = failures;
@@ -200,6 +201,10 @@ int main(int argc, char **argv) {
         SDL_snprintf(path, sizeof path, "%s/vectors/audio.json", argv[1]);
         test_audio(path);
         printf("%-12s %s\n", "audio", failures == before ? "ok" : "FAILED");
+        before = failures;
+        SDL_snprintf(path, sizeof path, "%s/vectors/chunked.json", argv[1]);
+        test_chunked(path);
+        printf("%-12s %s\n", "chunked", failures == before ? "ok" : "FAILED");
     }
     const char *models = SDL_getenv("EARHEART_MODELS");
     if (models && argc >= 2) {

@@ -19,3 +19,17 @@ eh_wav_info eh_wav_parse(const uint8_t *buf, size_t len);
 float *eh_wav_floats(const uint8_t *buf, size_t len, int *frames, int *rate, const char **error);
 
 double eh_wav_seconds(const uint8_t *buf, size_t len);  // at least 0.01
+
+int eh_wav_frames(const uint8_t *buf, size_t len);  // sample frames in a PCM16 WAV; 0 when it is not one
+
+// A mono PCM16 WAV file of the samples (SDL_free it); *len is its size.
+uint8_t *eh_wav_encode(const int16_t *samples, int count, int rate, size_t *len);
+// Floats to PCM16 as the pipeline does it: scaled by 32768, rounded and clamped, with `pad` frames
+// of silence on each side (SDL_free the result, which holds count + 2 * pad samples).
+int16_t *eh_wav_pcm16(const float *samples, int count, int pad);
+// Floats to a WAV as the recorder does it: clamped to [-1, 1], scaled by 32768 below zero and
+// 32767 above, and truncated.
+uint8_t *eh_wav_encode_recorded(const float *samples, int count, int rate, size_t *len);
+// The frames [from, to) of a mono PCM16 WAV as a new WAV, clamped to the recording. NULL when the
+// file is not mono PCM16.
+uint8_t *eh_wav_slice(const uint8_t *buf, size_t len, long long from, long long to, size_t *out_len);
