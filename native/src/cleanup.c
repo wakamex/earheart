@@ -61,7 +61,7 @@ const char *eh_cleanup_device(void) { return L.device; }
 #ifdef _WIN32
 #define LIB(name) name ".dll"
 #elif defined(__APPLE__)
-#define LIB(name) "lib" name ".dylib"
+#define LIB(name) "lib" name ".0.dylib"
 #else
 #define LIB(name) "lib" name ".so.0"
 #endif
