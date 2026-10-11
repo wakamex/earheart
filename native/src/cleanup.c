@@ -1,4 +1,5 @@
 #include "cleanup.h"
+#include "paths.h"
 #include "llama/llama.h"
 
 #define N_BATCH 512
@@ -73,7 +74,7 @@ static void quiet_log(enum ggml_log_level level, const char *text, void *user) {
 
 static SDL_SharedObject *open_lib(const char *dir, const char *name) {
     char path[1024];
-    SDL_snprintf(path, sizeof path, "%s/%s", dir, name);
+    SDL_snprintf(path, sizeof path, "%s" EH_SEP "%s", dir, name);
     SDL_SharedObject *lib = SDL_LoadObject(path);
     if (!lib) SDL_snprintf(L.error, sizeof L.error, "llama.cpp not available: %s", SDL_GetError());
     return lib;
@@ -81,6 +82,7 @@ static SDL_SharedObject *open_lib(const char *dir, const char *name) {
 
 static bool open_library(const char *dir) {
     if (L.lib) return true;
+    eh_engines_prepare(dir);
     // In dependency order, so each finds the ones before it already loaded.
     if (!(L.ggml_base = open_lib(dir, LIB("ggml-base"))) || !(L.ggml = open_lib(dir, LIB("ggml"))) || !(L.lib = open_lib(dir, LIB("llama")))) return false;
     struct { void *fn; SDL_SharedObject *lib; const char *name; } syms[] = {
@@ -105,7 +107,11 @@ static bool open_library(const char *dir) {
         { &L.sampler_free, L.lib, "llama_sampler_free" },
     };
     for (size_t i = 0; i < SDL_arraysize(syms); i++) {
+        // Which of the three exports a function differs by system; a Windows lookup sees only the
+        // one library asked, where the others also search what that library loads.
         SDL_FunctionPointer f = SDL_LoadFunction(syms[i].lib, syms[i].name);
+        if (!f) f = SDL_LoadFunction(L.ggml, syms[i].name);
+        if (!f) f = SDL_LoadFunction(L.ggml_base, syms[i].name);
         if (!f) {
             SDL_snprintf(L.error, sizeof L.error, "llama.cpp not available: %s is missing", syms[i].name);
             L.lib = NULL;

@@ -5,6 +5,7 @@
 // Prints one JSON line per file, in the shape of `earheart transcribe --json`.
 //
 //   node native/tools/stt-oracle.js MODELS_DIR MODEL_ID FILE.wav...
+//   node native/tools/stt-oracle.js MODELS_DIR MODEL_ID --list FILE     paths from a file, one a line
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -12,7 +13,8 @@ const sherpaOnnx = require("sherpa-onnx-node");
 const { getModel } = require("../../main/engines/registry");
 const { wavToFloat32, SAMPLE_RATE } = require("../../main/util/wav");
 
-const [models, id, ...files] = process.argv.slice(2);
+const [models, id, ...args] = process.argv.slice(2);
+const files = args[0] === "--list" ? fs.readFileSync(args[1], "utf8").split(/\r?\n/).filter(Boolean) : args;
 const { sherpa } = getModel("stt", id);
 const dir = path.join(models, "stt", id);
 const numThreads = Math.max(1, Math.min(8, os.cpus().length - 1));

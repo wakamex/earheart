@@ -1,5 +1,6 @@
 #include "stt.h"
 #include <SDL3/SDL.h>
+#include "paths.h"
 #include "sherpa-onnx/c-api/c-api.h"
 
 #define FEATURE_DIM 80  // Parakeet's mel-feature dimension, fixed by the model
@@ -32,8 +33,9 @@ int eh_stt_threads(void) { return S.threads; }
 
 static bool open_library(const char *engines_dir) {
     if (S.lib) return true;
+    eh_engines_prepare(engines_dir);
     char path[1024];
-    SDL_snprintf(path, sizeof path, "%s/%s", engines_dir, SHERPA_LIB);
+    SDL_snprintf(path, sizeof path, "%s" EH_SEP "%s", engines_dir, SHERPA_LIB);
     S.lib = SDL_LoadObject(path);
     if (!S.lib) { SDL_snprintf(S.error, sizeof S.error, "sherpa-onnx not available: %s", SDL_GetError()); return false; }
     struct { void *fn; const char *name; } syms[] = {

@@ -1,5 +1,7 @@
 // Earheart: hotkey-driven voice dictation, fully local.
-//   earheart transcribe [--models DIR] [--model ID] [--json] FILE.wav...   print each file's transcript
+//   earheart transcribe [--models DIR] [--model ID] [--json] [--list FILE] FILE.wav...
+//                                             print each file's transcript; --list names a file of
+//                                             paths, one a line
 //   earheart clean [--models DIR] [--model ID] [--cpu] [--system FILE] [--temperature T] [--tokens] TEXT
 //                                             print TEXT cleaned up ("-" reads it from standard input);
 //                                             --tokens prints the prompt's tokens instead, for tests
@@ -18,7 +20,7 @@
 #include "paths.h"
 
 static int usage(void) {
-    fprintf(stderr, "usage: earheart transcribe [--models DIR] [--model ID] [--json] FILE.wav...\n"
+    fprintf(stderr, "usage: earheart transcribe [--models DIR] [--model ID] [--json] [--list FILE] FILE.wav...\n"
                     "       earheart clean [--models DIR] [--model ID] [--cpu] [--system FILE] [--temperature T] [--tokens] TEXT\n"
                     "       earheart clean [--models DIR] [--model ID] [--cpu] --batch < requests.jsonl\n");
     return 2;
@@ -31,14 +33,27 @@ static int fail(eh_engine_msg *m) {
 }
 
 static int cmd_transcribe(int argc, char **argv) {
-    const char *models = SDL_getenv("EARHEART_MODELS"), *id = NULL;
+    const char *models = SDL_getenv("EARHEART_MODELS"), *id = NULL, *list = NULL;
     bool json = false;
     int i = 0;
     for (; i < argc && argv[i][0] == '-'; i++) {
         if (!SDL_strcmp(argv[i], "--models") && i + 1 < argc) models = argv[++i];
         else if (!SDL_strcmp(argv[i], "--model") && i + 1 < argc) id = argv[++i];
+        else if (!SDL_strcmp(argv[i], "--list") && i + 1 < argc) list = argv[++i];
         else if (!SDL_strcmp(argv[i], "--json")) json = true;
         else return usage();
+    }
+    if (list) {
+        // The listed paths take the place of the arguments.
+        char *text = SDL_LoadFile(list, NULL), *save = NULL;
+        if (!text) { fprintf(stderr, "earheart: %s: %s\n", list, SDL_GetError()); return 1; }
+        int cap = 16;
+        argv = SDL_malloc(sizeof(char *) * (size_t)cap);
+        argc = i = 0;
+        for (char *line = SDL_strtok_r(text, "\r\n", &save); line; line = SDL_strtok_r(NULL, "\r\n", &save)) {
+            if (argc == cap) argv = SDL_realloc(argv, sizeof(char *) * (size_t)(cap *= 2));
+            argv[argc++] = line;
+        }
     }
     if (i == argc || !models) return usage();
     const eh_model *m = eh_catalog_find(EH_MODEL_STT, id);

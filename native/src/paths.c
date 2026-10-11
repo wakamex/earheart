@@ -43,3 +43,15 @@ const char *eh_engines_dir(void) {
     SDL_strlcpy(slash ? slash + 1 : dir, "engines", sizeof dir - (size_t)(slash ? slash + 1 - dir : 0));
     return dir;
 }
+
+void eh_engines_prepare(const char *dir) {
+#ifdef _WIN32
+    // LoadLibrary looks for a library's own imports in the program's folder and along PATH, not
+    // beside the library. Without this, llama.dll's search for ggml.dll walks PATH and fails on
+    // the first folder it may not traverse.
+    WCHAR wide[1024];
+    if (MultiByteToWideChar(CP_UTF8, 0, dir, -1, wide, SDL_arraysize(wide))) SetDllDirectoryW(wide);
+#else
+    (void)dir;
+#endif
+}
