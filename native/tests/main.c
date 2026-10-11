@@ -210,6 +210,16 @@ int main(int argc, char **argv) {
         test_text(path);
         printf("%-12s %s\n", "text", failures == before ? "ok" : "FAILED");
         before = failures;
+#if defined(__APPLE__)
+        SDL_snprintf(path, sizeof path, "%s/vectors/hotkeys-darwin.json", argv[1]);
+#elif defined(_WIN32)
+        SDL_snprintf(path, sizeof path, "%s/vectors/hotkeys-win32.json", argv[1]);
+#else
+        SDL_snprintf(path, sizeof path, "%s/vectors/hotkeys-linux.json", argv[1]);
+#endif
+        test_hotkeys(path);
+        printf("%-12s %s\n", "hotkeys", failures == before ? "ok" : "FAILED");
+        before = failures;
         SDL_snprintf(path, sizeof path, "%s/vectors/settings.json", argv[1]);
         test_settings(path);
         printf("%-12s %s\n", "settings", failures == before ? "ok" : "FAILED");
