@@ -6,3 +6,4 @@ extern int failures;
 
 void test_audio(const char *vectors);    // tests/audio.c
 void test_chunked(const char *vectors);  // tests/chunked.c
+void test_text(const char *vectors);     // tests/text.c

@@ -205,6 +205,10 @@ int main(int argc, char **argv) {
         SDL_snprintf(path, sizeof path, "%s/vectors/chunked.json", argv[1]);
         test_chunked(path);
         printf("%-12s %s\n", "chunked", failures == before ? "ok" : "FAILED");
+        before = failures;
+        SDL_snprintf(path, sizeof path, "%s/vectors/text.json", argv[1]);
+        test_text(path);
+        printf("%-12s %s\n", "text", failures == before ? "ok" : "FAILED");
     }
     const char *models = SDL_getenv("EARHEART_MODELS");
     if (models && argc >= 2) {

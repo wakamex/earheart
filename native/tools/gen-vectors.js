@@ -131,6 +131,96 @@ const probes = [
 fs.writeFileSync(path.join(__dirname, "../tests/vectors/audio.json"), JSON.stringify({ cases, probes }) + "\n");
 console.log(`audio.json: ${cases.length} recordings, ${cases.reduce((n, c) => n + c.results.reduce((m, r) => m + r.cuts.length, 0), 0)} cuts`);
 
+/* ---------------- text ---------------- */
+
+const { stripFillers, collapseRepeats, stripStumbles } = require("../../main/util/stumble-strip");
+
+// Every string literal in test/unit.test.js, which holds the stumble stripper's own tests, as inputs: the cases its authors
+// thought mattered.
+function literalsOf(file) {
+  const src = fs.readFileSync(path.join(__dirname, "../../test", file), "utf8");
+  const out = new Set();
+  for (const m of src.matchAll(/"((?:[^"\\\n]|\\.)*)"/g)) {
+    try {
+      out.add(JSON.parse(`"${m[1]}"`));
+    } catch {}
+  }
+  return [...out];
+}
+
+// Sentences assembled from the pieces the stripper reacts to, so every seam is tried: fillers in
+// each case, commas and sentence punctuation on either side, line breaks, repeats, other scripts.
+function textInputs() {
+  const rand = mulberry32(4242);
+  const pick = (list) => list[Math.floor(rand() * list.length)];
+  const fillers = ["um", "uh", "Um", "Uh", "umm", "uhh", "uhm", "erm", "Erm", "UM", "UH", "ermm", "uh-huh", "umbrella", "hum", "um_x", "Ümit"];
+  const words = ["the", "the", "The", "file", "I", "I", "a", "a", "had", "very", "two", "2", "v", "V", "Walla", "walla", "éclair", "Éclair", "это", "Это", "ναι", "Ναι", "straße", "ﬁle", "don't", "don’t", "well-known", "so", "okay", "x1", "𝒳", "we", "is", "that's", "it"];
+  const seams = [" ", " ", " ", "  ", ", ", ",", " ,", ". ", "! ", "? ", "... ", "\n", " \n", ".\n", "; ", ": ", "\t", "\u00a0", ".\" ", ".) ", "\n\n"];
+  const out = ["", " ", "um", "Um.", "um um", "the the", "I I", "The the the", "um, uh, the the file", "Um... okay", "Do it. Um! Really?", "So, um, we", "is uh, for", "that's it, um.", "the um the file", "no no", "No, no"];
+  for (let i = 0; i < 700; i++) {
+    let s = rand() < 0.2 ? pick(seams) : "";
+    const n = 1 + Math.floor(rand() * 9);
+    for (let k = 0; k < n; k++) {
+      const r = rand();
+      const w = r < 0.35 ? pick(fillers) : pick(words);
+      s += w;
+      if (rand() < 0.35) s += pick([" ", "  "]) + (rand() < 0.8 ? w : w.toLowerCase());
+      if (k < n - 1 || rand() < 0.4) s += pick(seams);
+    }
+    out.push(s);
+  }
+  return [...new Set([...out, ...literalsOf("unit.test.js").filter((t) => t.length < 400)])];
+}
+
+// residualTail is private to main/live-preview.js; this is its text, checked against the source so
+// a change there fails the generator and is not silently missed.
+function normWord(w) {
+  return w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+function residualTail(live, committed) {
+  if (!live) return "";
+  const liveWords = live.split(/\s+/);
+  const committedWords = committed ? committed.split(/\s+/) : [];
+  const shared = Math.min(liveWords.length, committedWords.length);
+  for (let i = 0; i < shared; i++) {
+    if (normWord(liveWords[i]) !== normWord(committedWords[i])) return "";
+  }
+  return liveWords.slice(committedWords.length).join(" ");
+}
+{
+  const src = fs.readFileSync(path.join(__dirname, "../../main/live-preview.js"), "utf8");
+  for (const fn of [normWord, residualTail]) {
+    const body = fn.toString().replace(/\s+/g, " ");
+    const theirs = src.replace(/\/\/[^\n]*\n/g, "\n").replace(/\s+/g, " ");
+    if (!theirs.includes(body)) throw new Error(`main/live-preview.js no longer contains ${fn.name} as copied here`);
+  }
+}
+
+function tailPairs() {
+  const rand = mulberry32(777);
+  const pick = (list) => list[Math.floor(rand() * list.length)];
+  const words = ["so", "the", "chunk", "boundary", "lands", "somewhere", "here", "Это", "ναι", "x1", "don't", "well-known", "okay"];
+  const dress = (w) => pick([w, w, w, w.toUpperCase(), w + ",", w + ".", `"${w}"`, w + "?!", "…" + w]);
+  const out = [["", ""], ["a b", ""], ["", "a b"], ["a  b", "a"], [" a b", "a"], ["a b ", "a"], ["a b", " a"], ["a b c", "A, b."], ["a b c", "a x"], ["a b", "a b c d"], ["... a", "a"]];
+  for (let i = 0; i < 300; i++) {
+    const n = 1 + Math.floor(rand() * 8);
+    const base = Array.from({ length: n }, () => pick(words));
+    const cut = Math.floor(rand() * (n + 2));
+    const committed = base.slice(0, cut).map(dress);
+    if (rand() < 0.2 && committed.length) committed[Math.floor(rand() * committed.length)] = pick(words);
+    out.push([base.map(dress).join(pick([" ", "  ", "\n"])), committed.join(pick([" ", " ", "\t"]))]);
+  }
+  return out;
+}
+
+{
+  const strip = textInputs().map((input) => [input, stripFillers(input), collapseRepeats(input), stripStumbles(input)]);
+  const tails = tailPairs().map(([live, committed]) => [live, committed, residualTail(live, committed)]);
+  const trims = [" a ", "\n\ta b\u00a0\u2028", "", "  ", "x", "\ufeffx\u3000"].map((t) => [t, t.trim()]);
+  fs.writeFileSync(path.join(__dirname, "../tests/vectors/text.json"), JSON.stringify({ strip, tails, trims }) + "\n");
+  console.log(`text.json: ${strip.length} texts (${strip.filter((r) => r[0] !== r[3]).length} changed), ${tails.length} tail pairs (${tails.filter((r) => r[2]).length} with a tail)`);
+}
+
 /* ---------------- chunked decode ---------------- */
 
 // The PCM of a WAV as one number, exact in both languages.
