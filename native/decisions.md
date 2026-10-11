@@ -72,6 +72,35 @@ Settings, history and downloads live in a folder of this build's own (`earheart-
 
 The saved microphone is matched by SDL's device name. An id saved by the Electron build is Chromium's and matches nothing, so such a setting falls back to the system's default microphone with the overlay's "Saved mic missing" remark.
 
+### Hotkeys, paste, one instance and the clipboard live in the app until gesso has them (M2, 2026-10-11)
+
+gesso's agent has the request list (`gesso-requests.txt`) and took JSON writing, the drawing primitives and the overlay window first. So that M2 was not held up, the desktop pieces were written in the app behind one interface, `src/desk.h`, with a file per system, for gesso to lift:
+
+- Hotkeys: X11 key grabs on a connection of the app's own, with libX11 opened at run time; `RegisterHotKey` on a thread with its own message queue; Carbon's `RegisterEventHotKey` on macOS, which needs no permission.
+- The paste keystroke: on Linux the tools the Electron build runs, in its order (`wtype` or `ydotool` on Wayland, then `xdotool`); `SendInput` on Windows in place of starting PowerShell; a posted Cmd+V on macOS in place of `osascript`, so the Automation permission is no longer needed and Accessibility alone is.
+- One instance: a socket in the data folder on Linux and macOS, a named pipe on Windows. A later instance hands over `--toggle`, `--pause` or `--discard` and exits.
+- The clipboard's old contents: SDL lists the formats of what it put on the clipboard itself and, on macOS, of nothing else, so a snapshot through SDL came back empty there and the user's clipboard was not restored. macOS copies the pasteboard's items whole through AppKit, Windows copies every memory-backed format, and Linux keeps SDL's formats, which X11 reports for any owner.
+
+### macOS: a bundle, a background app, and a named signing identity (M2, 2026-10-11)
+
+`tools/bundle-macos.sh` makes `Earheart.app`: the executable and its engines, an `Info.plist` with the microphone usage string and `LSUIElement`, the icon set, and a signature. SDL also has to be told the app is a background one (`SDL_HINT_MAC_BACKGROUND_APP`), or it puts it in the Dock regardless.
+
+macOS files the Accessibility grant under the app's designated requirement. An ad hoc signature gives each build a new one, and the grant was lost on the first rebuild. Signed with a self-signed certificate the requirement is `identifier "dev.wakamex.earheart" and certificate leaf = H"…"`, the same on every build, which is the arrangement `CONTRIBUTING.md` describes for the Electron build.
+
+When a paste is refused for want of Accessibility the app has the system ask, once a run (`AXIsProcessTrustedWithOptions`), which is also what lists the app in System Settings for the user to switch on.
+
+### Linux builds target glibc 2.34 (M2, 2026-10-11)
+
+A build made on the development host needs that host's glibc (2.43) and does not start on Ubuntu 24.04. Release builds name the floor the engines set: `zig build -Dtarget=x86_64-linux-gnu.2.34`.
+
+### The tray on Linux needs the AppIndicator library (M2, 2026-10-11)
+
+SDL's tray loads `libayatana-appindicator` at run time and fails without it ("Could not load AppIndicator libraries"), as on the Fedora development host and on GitHub's Ubuntu runners. The app then runs without a tray, driven by its hotkeys and by `earheart --toggle`. Electron's tray speaks the StatusNotifierItem protocol itself. This is on gesso's list.
+
+### Notifications go to the log for now (M2, 2026-10-11)
+
+The pipeline's notices (cleanup failed, transcription interrupted, auto-paste failed, model not downloaded) are written to `earheart.log` until desktop notifications exist, which the plan brings forward ahead of delivery.
+
 ## Measurements
 
 ### M0: the Electron build, v0.39.0 (2026-10-11)
@@ -285,3 +314,60 @@ With the same seed the two builds write byte-identical text in 9 of 10 cleans on
 - GPU: Metal on the Mac and Vulkan on Windows in both builds. The Linux reference machine has no Vulkan driver, so the native build cleans on its CPU there, where the Electron build uses CUDA.
 
 Chromium's microphone processing against SDL's raw audio belongs to M2.
+
+### M2: tray, hotkey, record, paste (2026-10-11)
+
+`tests/e2e.sh` runs a dictation as a user makes it: the app in the tray, the default record hotkey pressed, a FLEURS clip played as the microphone, the hotkey pressed again, and the text expected in a focused window (`tests/paste_target.c`), with the clipboard's old contents back afterwards; then the same started and stopped by `earheart --toggle`.
+
+| System | Where | Hotkey | Paste into the focused window | Clipboard put back | Second instance |
+|---|---|---|---|---|---|
+| Linux X11 | Xvfb on the development host, an Ubuntu 24.04 container, and CI (ubuntu-24.04) | pressed with xdotool: pass | pass | pass | pass |
+| Windows | CI (windows-2025) | pressed with `SendInput`: pass | pass | pass | pass |
+| macOS | the rented Mac, through its remote desktop | the real Cmd+Shift+Space: pass | into TextEdit, after Accessibility was granted: pass | pass | pass |
+
+On macOS without Accessibility the dictation ends with the text on the clipboard, the notice "Accessibility permission is off" and the system's prompt, as designed.
+
+Booting the whole app and exiting (`--smoke-test`), both builds inside one X display on the Linux host, three runs each:
+
+| Build | Time | Peak memory of the main process |
+|---|---|---|
+| Electron | 2.26 to 2.29 s | 182 to 184 MB |
+| Native | 0.07 to 0.09 s | 8 to 9 MB |
+
+Idle in the tray with no models loaded the native build is one process of 6 MiB, against the Electron build's 267 MiB. It has no overlay window yet; that comes with M4.
+
+Not measured: hotkey to "Listening" in the Electron build, which has no marker to time against. In the native build the recorder is live within the same second as the key press on all three systems.
+
+### M3: pipeline parity (2026-10-11)
+
+Ported and compared exactly against the JavaScript (`tools/gen-vectors.js`, `zig build test`):
+
+| Logic | Source | Cases |
+|---|---|---|
+| Silence splitter, pause squeezing, cap cuts, sound seconds | `main/util/split-silence.js` | 40 seeded recordings under 5 option sets |
+| Forced boundary search | `renderer/chunk-boundary.js` | the same recordings |
+| Speech probe | `renderer/speech-probe.js` | the same, and 6 edge cases |
+| Chunked decoder: retries, padded second try, noise pieces, salvage, the stop after dead groups | `main/chunked-decode.js` | 120 dictations under a scripted fake engine, 6 failing outright, 34 partial, 56 with salvage |
+| Stumble stripper | `main/util/stumble-strip.js` | 1,146 texts, 603 of them changed |
+| Live preview's word comparison | `main/live-preview.js` | 311 pairs |
+| Settings merge, migrations, limits | `main/settings.js` | 18 stored files |
+| Cleanup prompt and sampling | `main/cleanup-styles.js` | 7 sections |
+
+The pipeline (`src/pipeline.c`), the live preview (`src/preview.c`) and the recorder (`src/recorder.c`) are line-for-line ports that have no pure function to compare; they are tested whole, by `earheart dictate` and `tests/e2e.sh`.
+
+Long recordings, `tools/eval-long-decode-native.js` (the recordings, baseline and gate of `scripts/eval-long-decode.js`), default model, Linux:
+
+| Recording | Audio | Short-clip WER | Pieces | Longest piece | Word ratio | WER | Gate |
+|---|---|---|---|---|---|---|---|
+| read | 124.5 s | 4.2% | 18 | 10.5 s | 0.981 | 5.1% | pass |
+| read | 182.9 s | 4.0% | 26 | 14.3 s | 0.990 | 4.6% | pass |
+| read | 310.9 s | 5.7% | 44 | 14.7 s | 0.989 | 5.9% | pass |
+| dictation | 155.2 s | 4.2% | 24 | 11.2 s | 0.990 | 5.5% | pass |
+| dictation | 225.0 s | 4.0% | 32 | 14.7 s | 0.992 | 5.2% | pass |
+| dictation | 382.4 s | 5.7% | 54 | 16.1 s | 0.995 | 6.2% | pass |
+
+The gate is a word ratio of at least 0.95 and a WER no more than 3 points above the recording's own sentences decoded one clip at a time.
+
+The speech engine dying: `earheart dictate --kill-stt-at-stop` makes every decode from the stop on kill the worker, the retry on a fresh worker included. The dictation still ends "done": the text the live preview had committed is delivered and written to history marked incomplete, with the "transcription interrupted" notice. `tests/e2e.sh` checks this on every CI run.
+
+Not ported yet: the remote (OpenAI-compatible) engines, which come with the settings window in M5.
