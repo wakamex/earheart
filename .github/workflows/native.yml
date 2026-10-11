@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to a branch makes the run for an older one moot.
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   native:
     name: Native on ${{ matrix.os }}
