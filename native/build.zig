@@ -16,7 +16,16 @@ pub fn build(b: *std.Build) void {
 
     const mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true, .strip = optimize != .debug });
     mod.addCSourceFiles(.{ .root = b.path("src"), .files = sources, .flags = flags });
-    mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{ "main.c", "dictate.c" }, .flags = flags });
+    mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{ "main.c", "dictate.c", "desk.c", "deliver.c", "run.c" }, .flags = flags });
+    // What the app does to the desktop around it, one implementation per system.
+    switch (target.result.os.tag) {
+        .windows => mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{"desk_windows.c"}, .flags = flags }),
+        .macos => {
+            mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{ "desk_macos.c", "desk_unix.c" }, .flags = flags });
+            for ([_][]const u8{ "Carbon", "ApplicationServices" }) |f| mod.linkFramework(f, .{});
+        },
+        else => mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{ "desk_linux.c", "desk_unix.c" }, .flags = flags }),
+    }
     mod.addIncludePath(b.path("vendor/include"));
     mod.addCMacro("EARHEART_VERSION", "\"" ++ zon.version ++ "\"");
     mod.linkLibrary(gesso);
@@ -30,6 +39,12 @@ pub fn build(b: *std.Build) void {
         const dir = b.fmt("engines/{s}-{s}", .{ @tagName(t.os.tag), if (t.cpu.arch == .aarch64) "arm64" else "x64" });
         b.installDirectory(.{ .source_dir = b.path(dir), .install_dir = .bin, .install_subdir = "engines" });
     }
+
+    // A window to dictate into, for the end-to-end tests.
+    const target_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    target_mod.addCSourceFiles(.{ .root = b.path("tests"), .files = &.{"paste_target.c"}, .flags = flags });
+    target_mod.linkLibrary(gesso);
+    b.installArtifact(b.addExecutable(.{ .name = "paste-target", .root_module = target_mod }));
 
     const tests = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     tests.addCSourceFiles(.{ .root = b.path("src"), .files = sources, .flags = flags });

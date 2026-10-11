@@ -16,3 +16,4 @@ int eh_stt_threads(void);  // the thread count the recognizer was given: min(8, 
 char *eh_stt_transcribe(const float *samples, int frames, int rate, int *decode_ms);
 void eh_stt_unload(void);
 const char *eh_stt_error(void);
+bool eh_stt_available(const char *engines_dir);  // the library opens; eh_stt_error() says why not

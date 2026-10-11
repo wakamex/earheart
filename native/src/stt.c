@@ -57,6 +57,8 @@ static bool open_library(const char *engines_dir) {
     return true;
 }
 
+bool eh_stt_available(const char *engines_dir) { return open_library(engines_dir); }
+
 bool eh_stt_load(const char *engines_dir, const char *dir, const eh_stt_files *f) {
     // A joiner makes a transducer; Whisper has to say so. Anything else would load into the wrong
     // configuration, so it is refused before the current recognizer is dropped.

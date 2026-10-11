@@ -1,4 +1,6 @@
 // Earheart: hotkey-driven voice dictation, fully local.
+//   earheart [--hidden | --toggle | --pause | --discard | --smoke-test [--engine-check]]
+//                                             the app, in the tray (run.c)
 //   earheart transcribe [--models DIR] [--model ID] [--json] [--list FILE] FILE.wav...
 //                                             print each file's transcript; --list names a file of
 //                                             paths, one a line
@@ -22,9 +24,11 @@
 #include "paths.h"
 
 int eh_cmd_dictate(int argc, char **argv);  // dictate.c
+int eh_run(int argc, char **argv);          // run.c
 
 static int usage(void) {
-    fprintf(stderr, "usage: earheart transcribe [--models DIR] [--model ID] [--json] [--list FILE] FILE.wav...\n"
+    fprintf(stderr, "usage: earheart [--hidden | --toggle | --pause | --discard]\n"
+                    "       earheart transcribe [--models DIR] [--model ID] [--json] [--list FILE] FILE.wav...\n"
                     "       earheart clean [--models DIR] [--model ID] [--cpu] [--system FILE] [--temperature T] [--tokens] TEXT\n"
                     "       earheart clean [--models DIR] [--model ID] [--cpu] --batch < requests.jsonl\n");
     return 2;
@@ -217,5 +221,7 @@ int main(int argc, char **argv) {
     if (argc >= 2 && !SDL_strcmp(argv[1], "transcribe")) return cmd_transcribe(argc - 2, argv + 2);
     if (argc >= 2 && !SDL_strcmp(argv[1], "clean")) return cmd_clean(argc - 2, argv + 2);
     if (argc >= 2 && !SDL_strcmp(argv[1], "dictate")) return eh_cmd_dictate(argc - 2, argv + 2);
-    return usage();
+    if (argc >= 2 && (!SDL_strcmp(argv[1], "--help") || !SDL_strcmp(argv[1], "-h"))) { usage(); return 0; }
+    // Anything else is the app itself: in the tray, or handing its arguments to the instance there.
+    return eh_run(argc, argv);
 }

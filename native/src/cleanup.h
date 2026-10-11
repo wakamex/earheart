@@ -45,3 +45,4 @@ int eh_cleanup_count_tokens(const char *text);  // -1 when nothing is loaded
 void eh_cleanup_forget(void);  // empties the context, so the next prompt is read from its start
 void eh_cleanup_unload(void);
 const char *eh_cleanup_error(void);
+bool eh_cleanup_available(const char *engines_dir);  // the libraries open and their backends load

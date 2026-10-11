@@ -99,6 +99,11 @@ static void stt_serve(request *r) {
         eh_jw w = ok_reply(r->id);
         eh_jw_bool(&w, "pong", true);
         send_json(&w);
+    } else if (is(r, "loadcheck")) {
+        // The library opens, without touching any model: what CI can check.
+        if (!eh_stt_available(eh_engines_dir())) { send_error(r->id, eh_stt_error()); return; }
+        eh_jw w = ok_reply(r->id);
+        send_json(&w);
     } else if (is(r, "load-stt")) {
         const char *id = str(r, "modelId");
         if (!stt_model || !id || SDL_strcmp(stt_model, id)) {
@@ -219,6 +224,10 @@ static void cleanup_serve(request *r) {
         SDL_Delay((Uint32)gs_json_num(gs_json_get(r->v, "delayMs"), 0));
         eh_jw w = ok_reply(r->id);
         eh_jw_bool(&w, "pong", true);
+        send_json(&w);
+    } else if (is(r, "loadcheck")) {
+        if (!eh_cleanup_available(eh_engines_dir())) { send_error(r->id, eh_cleanup_error()); return; }
+        eh_jw w = ok_reply(r->id);
         send_json(&w);
     } else if (is(r, "load-cleanup")) {
         if (!load_for(r)) return;

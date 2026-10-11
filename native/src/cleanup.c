@@ -126,6 +126,8 @@ static bool open_library(const char *dir) {
     return true;
 }
 
+bool eh_cleanup_available(const char *engines_dir) { return open_library(engines_dir); }
+
 void eh_cleanup_unload(void) {
     if (L.ctx) L.context_free(L.ctx);
     if (L.model) L.model_free(L.model);
