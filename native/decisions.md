@@ -385,4 +385,4 @@ The gate is a word ratio of at least 0.95 and a WER no more than 3 points above 
 
 The speech engine dying: `earheart dictate --kill-stt-at-stop` makes every decode from the stop on kill the worker, the retry on a fresh worker included. The dictation still ends "done": the text the live preview had committed is delivered and written to history marked incomplete, with the "transcription interrupted" notice. `tests/e2e.sh` checks this on every CI run.
 
-Not ported yet: the remote (OpenAI-compatible) engines, which come with the settings window in M5.
+The remote (OpenAI-compatible) engines: `tests/remote.sh` runs a dictation transcribed and cleaned over HTTP against a stand-in service (`tests/fake_openai.py`) and checks the upload is a well-formed form with the model, language and API key, that the cleanup request carries no sampling settings strict servers refuse, and that a 401 comes back as "STT service error 401 — check the API key in Settings" without repeating the service's answer. It runs on all three systems in CI. The stand-in is written for this test, so the request shapes are checked against the Electron client's code and not against a real service.
