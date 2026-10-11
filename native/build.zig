@@ -7,7 +7,7 @@ const std = @import("std");
 const zon = @import("build.zig.zon");
 
 const flags: []const []const u8 = &.{ "-std=c11", "-ffp-contract=off", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-missing-field-initializers" };
-const sources: []const []const u8 = &.{ "engine.c", "worker.c", "paths.c", "cores.c", "files.c", "jv.c", "settings.c", "loop.c", "engines.c", "remote.c", "preview.c", "pipeline.c", "history.c", "recorder.c", "app.c", "jw.c", "wav.c", "audio.c", "chunked.c", "text.c", "stt.c", "cleanup.c", "models.c", "download.c", "catalog.c" };
+const sources: []const []const u8 = &.{ "engine.c", "worker.c", "paths.c", "cores.c", "files.c", "jv.c", "settings.c", "loop.c", "engines.c", "remote.c", "preview.c", "pipeline.c", "history.c", "recorder.c", "app.c", "jw.c", "wav.c", "audio.c", "chunked.c", "text.c", "stt.c", "cleanup.c", "models.c", "download.c", "catalog.c", "draw.c", "overlay.c" };
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) void {
 
     const mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true, .strip = optimize != .debug });
     mod.addCSourceFiles(.{ .root = b.path("src"), .files = sources, .flags = flags });
-    mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{ "main.c", "dictate.c", "desk.c", "deliver.c", "run.c", "draw.c", "overlay.c" }, .flags = flags });
+    mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{ "main.c", "dictate.c", "desk.c", "deliver.c", "run.c" }, .flags = flags });
     // What the app does to the desktop around it, one implementation per system.
     switch (target.result.os.tag) {
         .windows => mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{"desk_windows.c"}, .flags = flags }),
@@ -53,7 +53,7 @@ pub fn build(b: *std.Build) void {
 
     const tests = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     tests.addCSourceFiles(.{ .root = b.path("src"), .files = sources, .flags = flags });
-    tests.addCSourceFiles(.{ .root = b.path("tests"), .files = &.{ "main.c", "audio.c", "chunked.c", "text.c", "settings.c" }, .flags = flags });
+    tests.addCSourceFiles(.{ .root = b.path("tests"), .files = &.{ "main.c", "audio.c", "chunked.c", "text.c", "settings.c", "overlay.c" }, .flags = flags });
     tests.addIncludePath(b.path("src"));
     tests.addIncludePath(b.path("vendor/include"));
     tests.linkLibrary(gesso);

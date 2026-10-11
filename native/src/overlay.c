@@ -105,12 +105,16 @@ static void draw_dot(const pen *p, const char *status, float cx, float cy, doubl
     }
 }
 
+bool eh_overlay_key_enabled(const eh_overlay_model *m, int kind) {
+    bool paused = !SDL_strcmp(m->status, "paused"), recording = !SDL_strcmp(m->status, "recording"), starting = !SDL_strcmp(m->status, "starting");
+    return kind == 3 || (kind == 1 ? recording || paused : recording || paused || starting);
+}
+
 // A key: a 32-point disc with its mark. `kind`: 1 pause (or resume when paused), 2 done, 3 discard.
 static void draw_key(const pen *p, const eh_overlay_model *m, int kind, float cx, float cy) {
     SDL_Renderer *r = p->r;
     float s = p->scale, x = cx * s, y = cy * s;
-    bool paused = !SDL_strcmp(m->status, "paused"), recording = !SDL_strcmp(m->status, "recording"), starting = !SDL_strcmp(m->status, "starting");
-    bool enabled = kind == 3 || (kind == 1 ? recording || paused : recording || paused || starting);
+    bool paused = !SDL_strcmp(m->status, "paused"), enabled = eh_overlay_key_enabled(m, kind);
     bool hover = enabled && m->hover == kind;
     float radius = (m->pressed == kind && enabled ? 16 * 0.92f : 16) * s;
     SDL_FColor mark = ink(p, TEXT_DIM, 1);
@@ -147,7 +151,8 @@ static void draw_key(const pen *p, const eh_overlay_model *m, int kind, float cx
 
 static struct { gs_fontset *fonts; } shared;
 
-static float eh_overlay_draw_with(SDL_Renderer *r, gs_glyphs *glyphs, const eh_overlay_model *m, float width, float height, float scale, float opacity) {
+static float eh_overlay_draw_with(SDL_Renderer *r, gs_glyphs *glyphs, const eh_overlay_model *m, float width, float height, float scale, float opacity, eh_overlay_layout *out) {
+    eh_overlay_layout layout = { 0 };
     if (!shared.fonts) shared.fonts = gs_fontset_system();
     pen p = { shared.fonts, glyphs, r, scale, opacity };
     float s = scale, card_w = width - 2 * MARGIN;
@@ -189,13 +194,22 @@ static float eh_overlay_draw_with(SDL_Renderer *r, gs_glyphs *glyphs, const eh_o
 
     // The control row, from its two ends inward.
     float row_y = card_y + card_h - 1 - 8 - 44, mid = row_y + 22, left = card_x + 12 + 4, right = card_x + card_w - 12;
+    layout.card = (SDL_FRect){ card_x, card_y, card_w, card_h };
+    layout.transcript_lines = wrap ? wrap->count : 0;
     draw_key(&p, m, 3, right - 16, mid);
+    layout.keys[2] = (SDL_FRect){ right - 32, mid - 16, 32, 32 };
     right -= 32 + 10 + 10;
     draw_key(&p, m, 2, right - 16, mid);
+    layout.keys[1] = (SDL_FRect){ right - 32, mid - 16, 32, 32 };
     right -= 32 + 10;
     draw_key(&p, m, 1, right - 16, mid);
+    layout.keys[0] = (SDL_FRect){ right - 32, mid - 16, 32, 32 };
     right -= 32 + 10;
-    float timer_w = gs_fontset_width(p.fonts, 12 * s, m->timer) / s;
+    // The timer keeps one width whatever its digits, so the waveform's edge does not shift with them.
+    char widest[sizeof m->timer];
+    SDL_strlcpy(widest, m->timer, sizeof widest);
+    for (char *c = widest; *c; c++) if (*c >= '0' && *c <= '9') *c = '0';
+    float timer_w = gs_fontset_width(p.fonts, 12 * s, widest) / s;
     text_line(&p, m->timer, right - timer_w, mid - 6, 12, 0, ink(&p, m->cap_warning ? ACCENT : recording ? TEXT : TEXT_DIM, 1));
     right -= timer_w + 10;
     draw_dot(&p, m->status, left + 4, mid, m->seconds);
@@ -205,6 +219,7 @@ static float eh_overlay_draw_with(SDL_Renderer *r, gs_glyphs *glyphs, const eh_o
     // The waveform: the voice drawn as it lands, newest at the right edge. Outside recording it
     // dims to a ghost of the take, and further when a detail line takes its place.
     float wave_w = right - left, wave_a = *m->detail ? 0.07f : recording ? 1 : 0.25f;
+    layout.wave = (SDL_FRect){ left, mid - 16, wave_w, 32 };
     if (wave_w > 4) {
         SDL_Rect clip = { (int)(left * s), (int)((mid - 16) * s), (int)(wave_w * s), (int)(32 * s) };
         SDL_SetRenderClipRect(r, &clip);
@@ -226,6 +241,9 @@ static float eh_overlay_draw_with(SDL_Renderer *r, gs_glyphs *glyphs, const eh_o
             // Two lines at most, in the middle of the row.
             gs_wrap *d = gs_fontset_wrap(p.fonts, 11.5f * s, m->detail, (wave_w - 4) * s);
             int lines = SDL_min(2, d->count);
+            layout.detail = (SDL_FRect){ left + 2, mid - (float)lines * 8, wave_w - 4, (float)lines * 16 };
+            layout.detail_lines = lines;
+            layout.detail_clipped = d->count > lines;
             for (int i = 0; i < lines; i++) {
                 char *text = SDL_strndup(m->detail + d->lines[i].start, (size_t)((i == lines - 1 && d->count > lines ? (int)SDL_strlen(m->detail) : d->lines[i].end) - d->lines[i].start));
                 text_line(&p, text, left + 2, mid - (float)lines * 8 + (float)i * 16 + 2, 11.5f, wave_w - 4, ink(&p, TEXT_DIM, 1));
@@ -235,6 +253,7 @@ static float eh_overlay_draw_with(SDL_Renderer *r, gs_glyphs *glyphs, const eh_o
         }
         if (m->progress) {
             float y = (mid + 16 - 1 - 3) * s;
+            layout.progress = (SDL_FRect){ left, mid + 16 - 1 - 3, wave_w, 3 };
             eh_fill_round(r, left * s, y, wave_w * s, 3 * s, 2 * s, ink(&p, 0xffffff, 0.12f));
             eh_fill_round(r, left * s, y, wave_w * s * SDL_clamp(m->fraction, 0, 1), 3 * s, 2 * s, ink(&p, ACCENT, 1));
         }
@@ -243,32 +262,34 @@ static float eh_overlay_draw_with(SDL_Renderer *r, gs_glyphs *glyphs, const eh_o
     SDL_free(both);
     SDL_free(clean);
     SDL_free(tail);
+    if (out) *out = layout;
     return needed;
 }
 
-bool eh_overlay_shot(const eh_overlay_model *m, const char *png_path, float scale) {
-    // Twice: once to learn the height the card needs, and so every glyph is in the atlas.
+SDL_Surface *eh_overlay_render(const eh_overlay_model *m, float scale, eh_overlay_layout *layout) {
+    // Drawn again at the height the card asks for, and twice each time so every glyph is in the atlas.
     float height = EH_OVERLAY_HEIGHT;
-    bool ok = false;
-    for (int pass = 0; pass < 3; pass++) {
+    for (int pass = 0;; pass++) {
         int w = (int)(EH_OVERLAY_WIDTH * scale), h = (int)(height * scale);
         SDL_Surface *surface = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA32);
         SDL_Renderer *r = surface ? SDL_CreateSoftwareRenderer(surface) : NULL;
-        if (!r) return false;
+        if (!r) { SDL_DestroySurface(surface); return NULL; }
         gs_glyphs *glyphs = gs_glyphs_new(r, 1024);
         float needed = height;
-        for (int frame = 0; frame < 2; frame++) needed = eh_overlay_draw_with(r, glyphs, m, EH_OVERLAY_WIDTH, height, scale, 1);
+        for (int frame = 0; frame < 2; frame++) needed = eh_overlay_draw_with(r, glyphs, m, EH_OVERLAY_WIDTH, height, scale, 1, layout);
         SDL_RenderPresent(r);
-        if (pass == 2 || needed == height) {
-            // The card over the page it will sit on in a README: mid grey.
-            ok = stbi_write_png(png_path, w, h, 4, surface->pixels, surface->pitch) != 0;
-            pass = 2;
-        }
-        height = needed;
         gs_glyphs_free(glyphs);
         SDL_DestroyRenderer(r);
+        if (needed == height || pass == 2) return surface;
         SDL_DestroySurface(surface);
+        height = needed;
     }
+}
+
+bool eh_overlay_shot(const eh_overlay_model *m, const char *png_path, float scale) {
+    SDL_Surface *surface = eh_overlay_render(m, scale, NULL);
+    bool ok = surface && stbi_write_png(png_path, surface->w, surface->h, 4, surface->pixels, surface->pitch) != 0;
+    SDL_DestroySurface(surface);
     return ok;
 }
 
@@ -303,6 +324,7 @@ static struct {
     int drag_win_x, drag_win_y;
     char last_status[16];
     unsigned last_sid;
+    eh_overlay_layout layout;  // of the frame last drawn: where the keys are
 } O;
 
 bool eh_overlay_init(void) {
@@ -360,11 +382,10 @@ static void fit(float needed) {
 }
 
 static int key_at(float x, float y) {
-    // The keys' centres, as eh_overlay_draw lays them out from the right.
-    float mid = O.height - MARGIN - 1 - 8 - 22, right = EH_OVERLAY_WIDTH - MARGIN - 12;
-    const float centres[3] = { right - 16 - 104, right - 16 - 52, right - 16 };
-    for (int i = 0; i < 3; i++)
-        if (fabsf(x - centres[i]) <= 21 && fabsf(y - mid) <= 21) return i + 1;  // five points of slack around each
+    for (int i = 0; i < 3; i++) {
+        SDL_FRect k = O.layout.keys[i];  // with five points of slack around each
+        if (x >= k.x - 5 && x < k.x + k.w + 5 && y >= k.y - 5 && y < k.y + k.h + 5) return i + 1;
+    }
     return 0;
 }
 
@@ -438,77 +459,67 @@ bool eh_overlay_event(const SDL_Event *e) {
 
 static void clock_text(char *out, size_t size, int seconds) { SDL_snprintf(out, size, "%d:%02d", seconds / 60, seconds % 60); }
 
-int eh_overlay_frame(void) {
-    if (!O.window) return -1;
-    Uint64 now = SDL_GetTicks();
-    eh_overlay_model m = { 0 };
-    char *clean = NULL, *raw = NULL;
-    bool recording, paused;
+void eh_overlay_reset(void) {
+    O.column_count = 0;
+    O.column_at = 0;
+    O.display_level = 0;
+    O.phase[0] = O.last_status[0] = 0;
+    O.complete_at = 0;
+    O.last_sid = 0;
+}
 
-    // The app's state, copied under the lock; the drawing then needs nothing from it.
-    eh_lock();
-    const eh_view *v = eh_app_view();
-    bool wanted = v->visible;
-    SDL_strlcpy(m.status, v->status[0] ? v->status : "starting", sizeof m.status);
-    recording = !SDL_strcmp(m.status, "recording");
-    paused = !SDL_strcmp(m.status, "paused");
-    double captured = eh_recorder_seconds();
-    int cap = eh_recorder_cap_seconds();
-    if (v->raw) raw = SDL_strdup(v->raw);
-    if (v->cleaned) clean = SDL_strdup(v->cleaned);
-    float levels[24];
-    int level_count = eh_recorder_levels(levels, 24);
+int eh_overlay_step(const eh_overlay_input *in, Uint64 now, eh_overlay_model *m) {
+    const eh_view *v = in->view;
+    *m = (eh_overlay_model){ 0 };
+    SDL_strlcpy(m->status, v->status[0] ? v->status : "starting", sizeof m->status);
+    bool recording = !SDL_strcmp(m->status, "recording"), paused = !SDL_strcmp(m->status, "paused");
     const eh_jv *d = v->detail;
     bool incomplete = eh_jv_boolean(eh_jv_get(d, "incomplete"), false);
     const char *note = eh_jv_string(eh_jv_get(d, "note"), ""), *method = eh_jv_string(eh_jv_get(d, "method"), "");
-    // The state in a word, and the line under it.
-    if (!SDL_strcmp(m.status, "starting")) SDL_strlcpy(m.title, "Starting mic…", sizeof m.title);
-    else if (recording) { SDL_strlcpy(m.detail, v->notice, sizeof m.detail); }
-    else if (paused) { SDL_strlcpy(m.title, "Paused", sizeof m.title); SDL_strlcpy(m.detail, v->notice[0] ? v->notice : "Press play to resume", sizeof m.detail); }
-    else if (!SDL_strcmp(m.status, "transcribing")) SDL_strlcpy(m.title, "Transcribing…", sizeof m.title);
-    else if (!SDL_strcmp(m.status, "cleaning")) SDL_strlcpy(m.title, "Cleaning up…", sizeof m.title);
-    else if (!SDL_strcmp(m.status, "delivering")) SDL_strlcpy(m.title, "Typing…", sizeof m.title);
-    else if (!SDL_strcmp(m.status, "done")) {
+    // The state in a word, and the line beside it.
+    if (!SDL_strcmp(m->status, "starting")) SDL_strlcpy(m->title, "Starting mic…", sizeof m->title);
+    else if (recording) { SDL_strlcpy(m->detail, v->notice, sizeof m->detail); }
+    else if (paused) { SDL_strlcpy(m->title, "Paused", sizeof m->title); SDL_strlcpy(m->detail, v->notice[0] ? v->notice : "Press play to resume", sizeof m->detail); }
+    else if (!SDL_strcmp(m->status, "transcribing")) SDL_strlcpy(m->title, "Transcribing…", sizeof m->title);
+    else if (!SDL_strcmp(m->status, "cleaning")) SDL_strlcpy(m->title, "Cleaning up…", sizeof m->title);
+    else if (!SDL_strcmp(m->status, "delivering")) SDL_strlcpy(m->title, "Typing…", sizeof m->title);
+    else if (!SDL_strcmp(m->status, "done")) {
         const char *delivered = *note ? "Copied — auto-paste failed" : !SDL_strcmp(method, "clipboard") ? "Copied to clipboard" : !SDL_strcmp(method, "paste-copy") ? "Pasted & copied" : "Pasted";
-        SDL_snprintf(m.title, sizeof m.title, "%s%s", delivered, incomplete ? " — incomplete" : "");
-        SDL_strlcpy(m.detail, *note ? note : eh_jv_string(eh_jv_get(d, "preview"), ""), sizeof m.detail);
-    } else if (!SDL_strcmp(m.status, "empty")) { SDL_strlcpy(m.title, "Nothing heard", sizeof m.title); SDL_strlcpy(m.detail, "Try again closer to the mic", sizeof m.detail); }
-    else if (!SDL_strcmp(m.status, "error")) { SDL_strlcpy(m.title, "Failed", sizeof m.title); SDL_strlcpy(m.detail, eh_jv_string(eh_jv_get(d, "message"), ""), sizeof m.detail); }
-    // Progress belongs to the phase it was reported for.
-    bool reported = v->phase[0] && !SDL_strcmp(v->phase, m.status);
-    float fraction = v->fraction;
-    unsigned sid = v->sid;
-    eh_unlock();
+        SDL_snprintf(m->title, sizeof m->title, "%s%s", delivered, incomplete ? " — incomplete" : "");
+        SDL_strlcpy(m->detail, *note ? note : eh_jv_string(eh_jv_get(d, "preview"), ""), sizeof m->detail);
+    } else if (!SDL_strcmp(m->status, "empty")) { SDL_strlcpy(m->title, "Nothing heard", sizeof m->title); SDL_strlcpy(m->detail, "Try again closer to the mic", sizeof m->detail); }
+    else if (!SDL_strcmp(m->status, "error")) { SDL_strlcpy(m->title, "Failed", sizeof m->title); SDL_strlcpy(m->detail, eh_jv_string(eh_jv_get(d, "message"), ""), sizeof m->detail); }
 
-    // A new dictation starts with an empty waveform; a new phase with an empty bar.
-    if (sid != O.last_sid) { O.last_sid = sid; O.column_count = 0; O.column_at = 0; O.display_level = 0; }
-    if (SDL_strcmp(m.status, O.last_status)) {
+    // A new dictation starts with an empty waveform; a new phase with an empty bar, unless the
+    // bar it follows is still showing its end. Progress belongs to the phase it was reported for.
+    if (v->sid != O.last_sid) { O.last_sid = v->sid; O.column_count = 0; O.column_at = 0; O.display_level = 0; }
+    if (SDL_strcmp(m->status, O.last_status)) {
         bool holding = O.complete_at && now - O.complete_at < PROGRESS_HOLD_MS;
-        bool keeps = !SDL_strcmp(m.status, "transcribing") || !SDL_strcmp(m.status, "cleaning") || !SDL_strcmp(m.status, "delivering");
+        bool keeps = !SDL_strcmp(m->status, "transcribing") || !SDL_strcmp(m->status, "cleaning") || !SDL_strcmp(m->status, "delivering");
         if (!(holding && keeps)) { O.phase[0] = 0; O.complete_at = 0; }
-        SDL_strlcpy(O.last_status, m.status, sizeof O.last_status);
+        SDL_strlcpy(O.last_status, m->status, sizeof O.last_status);
     }
-    if (reported) {
-        SDL_strlcpy(O.phase, m.status, sizeof O.phase);
-        O.fraction = fraction;
-        if (fraction >= 1 && !O.complete_at) O.complete_at = now;
-        if (fraction < 1) O.complete_at = 0;
+    if (v->phase[0] && !SDL_strcmp(v->phase, m->status)) {
+        SDL_strlcpy(O.phase, m->status, sizeof O.phase);
+        O.fraction = v->fraction;
+        if (v->fraction >= 1 && !O.complete_at) O.complete_at = now;
+        if (v->fraction < 1) O.complete_at = 0;
     }
     if (O.complete_at && now - O.complete_at >= PROGRESS_HOLD_MS) { O.phase[0] = 0; O.complete_at = 0; }
-    m.progress = O.phase[0] != 0;
-    m.fraction = O.fraction;
+    m->progress = O.phase[0] != 0;
+    m->fraction = O.fraction;
 
     // The timer counts captured audio only; in the last minute it counts down to the cap.
-    int left = cap > 0 ? (int)ceil((double)cap - captured) : 0;
-    bool warned = cap > 0 && (recording || paused) && (double)cap - captured <= 60;
-    if (warned) { SDL_snprintf(m.timer, sizeof m.timer, "−%d:%02d", SDL_max(0, left) / 60, SDL_max(0, left) % 60); }
-    else clock_text(m.timer, sizeof m.timer, (int)captured);
-    m.cap_warning = warned;
-    if (recording) SDL_strlcpy(m.title, warned ? "Stopping soon…" : "Listening…", sizeof m.title);
+    int left = in->cap > 0 ? (int)ceil((double)in->cap - in->captured) : 0;
+    bool warned = in->cap > 0 && (recording || paused) && (double)in->cap - in->captured <= 60;
+    if (warned) SDL_snprintf(m->timer, sizeof m->timer, "−%d:%02d", SDL_max(0, left) / 60, SDL_max(0, left) % 60);
+    else clock_text(m->timer, sizeof m->timer, (int)in->captured);
+    m->cap_warning = warned;
+    if (recording) SDL_strlcpy(m->title, warned ? "Stopping soon…" : "Listening…", sizeof m->title);
 
     // The waveform: the latest level eased, and written as a column every 80 ms while recording.
-    float level = level_count ? levels[level_count - 1] : 0;
-    O.display_level += (level - O.display_level) * 0.18f;
+    // Paused, the columns hold where they are.
+    O.display_level += (in->level - O.display_level) * 0.18f;
     if (recording) {
         if (!O.column_at) O.column_at = now;
         while (now - O.column_at >= WAVE_PUSH_MS) {
@@ -517,19 +528,42 @@ int eh_overlay_frame(void) {
             if (O.column_count < (int)SDL_arraysize(O.columns)) O.column_count++;
             O.column_at += WAVE_PUSH_MS;
         }
-        m.column_fraction = (float)(now - O.column_at) / WAVE_PUSH_MS;
+        m->column_fraction = (float)(now - O.column_at) / WAVE_PUSH_MS;
     } else {
         O.column_at = 0;
     }
-    SDL_memcpy(m.levels, O.columns, sizeof m.levels);
-    m.level_count = O.column_count;
-    m.live_level = O.display_level;
+    SDL_memcpy(m->levels, O.columns, sizeof m->levels);
+    m->level_count = O.column_count;
+    m->live_level = O.display_level;
+    m->clean = v->cleaned;
+    m->raw = v->raw;
+    m->seconds = (double)now / 1000;
+
+    // Things that move want the next frame at once; a still card is drawn again when asked.
+    bool busy = !SDL_strcmp(m->status, "transcribing") || !SDL_strcmp(m->status, "cleaning") || !SDL_strcmp(m->status, "delivering");
+    if (recording || busy || !SDL_strcmp(m->status, "starting") || O.complete_at) return 16;
+    return paused ? 250 : -1;
+}
+
+int eh_overlay_frame(void) {
+    if (!O.window) return -1;
+    Uint64 now = SDL_GetTicks();
+    eh_overlay_model m;
+
+    // The app's state, read under the lock; the drawing then needs nothing from it.
+    eh_lock();
+    float levels[24];
+    int level_count = eh_recorder_levels(levels, 24);
+    eh_overlay_input in = { eh_app_view(), eh_recorder_seconds(), eh_recorder_cap_seconds(), level_count ? levels[level_count - 1] : 0 };
+    bool wanted = in.view->visible;
+    int again = eh_overlay_step(&in, now, &m);
+    char *clean = m.clean ? SDL_strdup(m.clean) : NULL, *raw = m.raw ? SDL_strdup(m.raw) : NULL;
+    eh_unlock();
     m.clean = clean;
     m.raw = raw;
     m.hover = O.hover;
     m.pressed = O.pressed;
     m.card_hover = O.card_hover;
-    m.seconds = (double)now / 1000;
 
     // Shown and hidden with a short fade.
     if (wanted != O.wanted) {
@@ -545,28 +579,24 @@ int eh_overlay_frame(void) {
     O.opacity = O.wanted ? SDL_max(O.opacity, t) : SDL_min(O.opacity, 1 - t);
     bool fading = O.wanted ? O.opacity < 1 : O.opacity > 0;
     if (!O.wanted && O.opacity <= 0) {
-        if (SDL_GetWindowFlags(O.window) & SDL_WINDOW_HIDDEN) { SDL_free(clean); SDL_free(raw); return -1; }
-        SDL_HideWindow(O.window);
-        SDL_free(clean);
-        SDL_free(raw);
-        return -1;
+        if (!(SDL_GetWindowFlags(O.window) & SDL_WINDOW_HIDDEN)) SDL_HideWindow(O.window);
+        again = -1;
+    } else {
+        float scale = SDL_GetWindowDisplayScale(O.window);
+        if (scale <= 0) scale = 1;
+        float needed = eh_overlay_draw_with(O.renderer, O.glyphs, &m, EH_OVERLAY_WIDTH, O.height, scale, O.opacity, &O.layout);
+        SDL_RenderPresent(O.renderer);
+        fit(needed);
+        if (fading || gs_glyphs_waiting(O.glyphs)) again = 16;
     }
-    float scale = SDL_GetWindowDisplayScale(O.window);
-    if (scale <= 0) scale = 1;
-    float needed = eh_overlay_draw_with(O.renderer, O.glyphs, &m, EH_OVERLAY_WIDTH, O.height, scale, O.opacity);
-    SDL_RenderPresent(O.renderer);
-    fit(needed);
     SDL_free(clean);
     SDL_free(raw);
-    // Things that move want the next frame at once; a still card is drawn again when asked.
-    bool busy = !SDL_strcmp(m.status, "transcribing") || !SDL_strcmp(m.status, "cleaning") || !SDL_strcmp(m.status, "delivering");
-    if (fading || recording || busy || !SDL_strcmp(m.status, "starting") || gs_glyphs_waiting(O.glyphs) || O.complete_at) return 16;
-    return paused ? 250 : -1;
+    return again;
 }
 
 float eh_overlay_draw(SDL_Renderer *r, const eh_overlay_model *m, float width, float height, float scale, float opacity) {
     static gs_glyphs *glyphs;
     static SDL_Renderer *owner;
     if (owner != r) { owner = r; glyphs = gs_glyphs_new(r, 1024); }
-    return eh_overlay_draw_with(r, glyphs, m, width, height, scale, opacity);
+    return eh_overlay_draw_with(r, glyphs, m, width, height, scale, opacity, NULL);
 }

@@ -201,6 +201,8 @@ Every surface of the Electron build at v0.39.0 and what the native build does wi
 | Pause, discard and copy keys; done card with the result, marked when incomplete | kept |
 | Position remembered between runs | kept |
 | Update prompt with "Skip this version" and "Don't remind me" | after M5, with the updater |
+| Tooltips on the keys, naming the discard hotkey, and on a detail line cut at two lines | not carried yet: gesso has no tooltips. A cut detail's full text is in the log and in the notification |
+| Status in semibold, timer in a monospace face | regular weight of the system font for both, until gesso can ask the system for a weight and a monospace face; the timer keeps a fixed width |
 
 ### Settings
 
