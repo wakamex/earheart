@@ -7,6 +7,7 @@
 #include "app.h"
 #include "correction_window.h"
 #include "deliver.h"
+#include "desk.h"
 #include "hotkeys.h"
 #include "jv.h"
 #include "loop.h"
@@ -114,6 +115,7 @@ static void settle(const char *what, const char *busy) {
 #define TAKEN "CommandOrControl+Alt+T"
 static int fake_add(const char *accelerator, int name, char *error, size_t size) { return SDL_strcmp(accelerator, TAKEN) ? 0 : 1; }
 static void fake_remove(const char *accelerator) {}
+static void no_hotkey(int id) {}
 
 static double setting(const char *path) {
     eh_lock();
@@ -139,6 +141,10 @@ static bool begin(const char *name) {
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) { fprintf(stderr, "earheart: %s\n", SDL_GetError()); return false; }
     SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0");
     eh_app_init(data, NULL, eh_deliver);
+    // The desktop's hotkeys are set up as in the app, though the test grabs none: on X11 that is
+    // also what keeps an X error from ending the process.
+    char why[256];
+    eh_hotkeys_init(no_hotkey, why, sizeof why);
     static const eh_hotkey_backend fake = { fake_add, fake_remove };
     eh_lock();
     eh_hotkeys_backend(&fake);

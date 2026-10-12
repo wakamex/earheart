@@ -52,8 +52,11 @@ static struct {
     void *(*set_error_handler)(int (*)(void *, x_error_event *));
 } X;
 
+// Xlib's own handler ends the process on any error, a window that was closed a moment ago
+// included. This one is the process's for every connection: an error on the hotkey connection is
+// a grab refused, and one on SDL's is passed over.
 static int on_x_error(void *display, x_error_event *e) {
-    SDL_SetAtomicInt(&X.refused, 1);
+    if (display == X.display) SDL_SetAtomicInt(&X.refused, 1);
     return 0;
 }
 

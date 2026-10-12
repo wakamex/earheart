@@ -64,6 +64,7 @@ run() {  # $1: how the dictation is started and stopped; $2: what to call it
         $1; sleep 3
         # Mid-recording the overlay is up, and the keyboard is still the target's.
         if command -v xdotool >/dev/null; then
+            for i in $(seq 20); do xdotool search --onlyvisible --name '^Earheart$' >/dev/null 2>&1 && break; sleep 0.1; done
             xdotool search --onlyvisible --name '^Earheart$' >/dev/null || fail "$2: no overlay on screen while recording"
             [ "$(xdotool getwindowfocus getwindowname)" = paste-target ] || fail "$2: the overlay took the keyboard from the focused window"
         fi
