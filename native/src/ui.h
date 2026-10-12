@@ -46,7 +46,6 @@ bool eh_ui_pointer_down(eh_ui *ui);
 // arrow key pressed for it this frame (-1, 0 or 1), `shift` whether Shift was held with it, and
 // `activated` whether Space or Enter was pressed on it.
 bool eh_ui_custom_stop(eh_ui *ui, const char *id, gs_rect r, int *arrow, bool *shift, bool *activated);
-bool eh_ui_keyboard_focus(eh_ui *ui);  // the focus came from the keyboard, so it is to be marked
 // The Tab order of the frame last drawn, for tests: how many stops, the name of one, where one is.
 int eh_ui_stops(eh_ui *ui);
 const char *eh_ui_stop_name(eh_ui *ui, int index);
@@ -58,7 +57,7 @@ const char *eh_ui_focus_name(eh_ui *ui);  // "" when nothing has the keyboard
 // time it was laid out. Returns the y at which the page's top is to be drawn; controls drawn until
 // eh_scroll_end are clipped to `area`, and those outside it cannot be clicked.
 float eh_scroll_begin(eh_ui *ui, gs_rect area, float content_h);
-void eh_scroll_end(eh_ui *ui);
+void eh_scroll_end(eh_ui *ui, float bottom);  // bottom: the y at which the page's content ended
 void eh_scroll_reclip(eh_ui *ui);  // after a clip of the caller's own inside the page: the page's clip again
 float eh_scroll_y(eh_ui *ui);
 void eh_scroll_to(eh_ui *ui, float y, bool glide);
@@ -89,11 +88,9 @@ bool eh_w_stops(eh_ui *ui, gs_rect r, const char *id, int *value, int count);  /
 // `out` in Electron's accelerator form and returns true for. Escape and leaving it end the capture.
 bool eh_w_hotkey(eh_ui *ui, gs_rect r, const char *id, const char *shown, const char *placeholder, char *out, size_t size);
 bool eh_ui_capturing(eh_ui *ui);  // a hotkey field is waiting for keys
-// A key press as an accelerator ("CommandOrControl+Shift+Space"); false for a key alone or a modifier.
-bool eh_accelerator_from_key(const SDL_KeyboardEvent *k, char *out, size_t size);
 
 // A question over the window. Ask once; then each frame, after the page is drawn, eh_ui_modal
 // draws it while it is open and returns 1 for the confirming answer, 2 for the other, 0 until then.
-void eh_ui_ask(eh_ui *ui, const char *question, const char *yes, bool dangerous);
+void eh_ui_ask(eh_ui *ui, const char *question, const char *yes, const char *no, bool dangerous);
 bool eh_ui_asking(eh_ui *ui);
 int eh_ui_modal(eh_ui *ui);

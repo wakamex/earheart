@@ -1,13 +1,12 @@
 #include "ui.h"
-#include <math.h>
 #include "draw.h"
 #include "icon_app.h"
 #include "stb_image.h"
 
-#define ORDER 256
-#define FOCUS_RING 2.0f
+#define PAGE "page"
+#define SEEN 256
 
-typedef struct { Uint32 id; char name[56]; gs_rect r; bool field, paged; } stop;  // paged: on the scrolling page
+typedef struct { char name[56]; gs_rect r; bool paged; } seen;
 
 struct eh_ui {
     SDL_Window *win;
@@ -15,44 +14,21 @@ struct eh_ui {
     gs_ui *gs;
     SDL_Texture *icon;
     bool close_asked, inert, dim;
-    float mx, my;            // the pointer, in points
-    float press_x, press_y;  // where the left button went down
-    bool down, escape;
-    bool input;              // something was pressed, released, typed or scrolled since the last frame
-    // The Tab order: the stops of the frame being drawn, and of the one before it, which Tab walks.
-    stop order[ORDER], last[ORDER];
-    int count, last_count;
-    Uint32 focus;
-    bool by_keyboard;        // the focus came from the keyboard, so it is marked
-    bool activate;           // Space or Enter this frame, for the control with the focus
-    int arrow;               // Up or Left: -1; Down or Right: 1
-    bool arrow_shift;
-    // The page.
-    bool scrolling;
-    gs_rect view;
-    float scroll, target, content, wheel;
-    bool gliding;
-    // The hotkey field that is waiting for keys, and what was pressed for it.
-    Uint32 capturing;
-    char captured[64];
-    bool capture_ended;
+    float mx, my;  // the pointer, in points
+    bool down;     // its left button
+    bool escape;   // Escape was pressed since the last frame
+    bool input;    // something was pressed, released, typed or scrolled since the last frame
+    bool paging;   // between eh_scroll_begin and eh_scroll_end
+    bool was_capturing;  // a hotkey field was waiting for keys when the frame began: Escape was its
+    // The controls the frame drew, for tests to find them by name.
+    seen drawn[SEEN];
+    int count;
     // The question.
-    char question[256], yes[32];
+    char question[256], yes[32], no[32];
     bool asking, dangerous, asked_now;
-    int again;               // milliseconds until a frame is wanted for an animation
 };
 
-static Uint32 hash(const char *s) {
-    Uint32 h = 2166136261u;
-    for (; *s; s++) h = (h ^ (unsigned char)*s) * 16777619u;
-    return h ? h : 1;
-}
-
-static void want_frame(eh_ui *ui, int ms) {
-    if (ui->again < 0 || ms < ui->again) ui->again = ms;
-}
-
-void eh_ui_again(eh_ui *ui, int ms) { want_frame(ui, ms); }
+void eh_ui_again(eh_ui *ui, int ms) { gs_ui_wake(ui->gs, ms); }
 
 eh_ui *eh_ui_new(const char *title, int w, int h, int min_w, int min_h) {
     eh_ui *ui = SDL_calloc(1, sizeof *ui);
@@ -88,10 +64,11 @@ eh_ui *eh_ui_new(const char *title, int w, int h, int min_w, int min_h) {
     s->accent_text = eh_rgba(EH_INK, 1);
     s->border = eh_rgba(EH_FIELD_EDGE, 1);
     s->warning = eh_rgba(EH_ERR, 1);
+    s->focus = eh_rgba(EH_TEXT, 0.9f);
+    s->radius = 8;
     s->text_px = 13;
     s->small_px = 12;
     s->row = 32;
-    ui->again = -1;
     return ui;
 }
 
@@ -106,32 +83,12 @@ void eh_ui_free(eh_ui *ui) {
 
 SDL_Window *eh_ui_window(eh_ui *ui) { return ui->win; }
 gs_ui *eh_ui_gs(eh_ui *ui) { return ui->gs; }
-bool eh_ui_capturing(eh_ui *ui) { return ui->capturing != 0; }
+bool eh_ui_capturing(eh_ui *ui) { return gs_ui_capturing(ui->gs); }
+bool eh_ui_asking(eh_ui *ui) { return ui->asking; }
 bool eh_ui_escaped(eh_ui *ui) { return ui->escape; }
 float eh_ui_pointer_x(eh_ui *ui) { return ui->mx; }
 float eh_ui_pointer_y(eh_ui *ui) { return ui->my; }
 bool eh_ui_pointer_down(eh_ui *ui) { return ui->down; }
-
-// A control of the caller's own in the Tab order: true when it has the keyboard. `arrow` gets the
-// arrow key pressed for it this frame (-1, 0 or 1) and `shift` whether Shift was held.
-bool eh_ui_custom_stop(eh_ui *ui, const char *id, gs_rect r, int *arrow, bool *shift, bool *activated) {
-    if (ui->inert) return false;
-    Uint32 h = 2166136261u;
-    for (const char *c = id; *c; c++) h = (h ^ (unsigned char)*c) * 16777619u;
-    if (ui->count < ORDER) {
-        stop *s = &ui->order[ui->count++];
-        s->id = h ? h : 1, s->r = r, s->field = false, s->paged = ui->scrolling;
-        SDL_strlcpy(s->name, id, sizeof s->name);
-    }
-    bool focused = ui->focus == (h ? h : 1);
-    if (arrow) *arrow = focused ? ui->arrow : 0;
-    if (shift) *shift = focused && ui->arrow_shift;
-    if (activated) *activated = focused && ui->activate;
-    return focused;
-}
-
-bool eh_ui_keyboard_focus(eh_ui *ui) { return ui->by_keyboard; }
-bool eh_ui_asking(eh_ui *ui) { return ui->asking; }
 
 bool eh_ui_close_asked(eh_ui *ui) {
     bool asked = ui->close_asked;
@@ -139,276 +96,131 @@ bool eh_ui_close_asked(eh_ui *ui) {
     return asked;
 }
 
-// Electron's name for a key, or NULL for one that cannot be a hotkey by itself.
-static const char *accelerator_key(const SDL_KeyboardEvent *k, char *buf, size_t size) {
-    SDL_Scancode sc = k->scancode;
-    if (sc >= SDL_SCANCODE_A && sc <= SDL_SCANCODE_Z) { SDL_snprintf(buf, size, "%c", 'A' + (int)(sc - SDL_SCANCODE_A)); return buf; }
-    if (sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_9) { SDL_snprintf(buf, size, "%c", '1' + (int)(sc - SDL_SCANCODE_1)); return buf; }
-    if (sc >= SDL_SCANCODE_KP_1 && sc <= SDL_SCANCODE_KP_9) { SDL_snprintf(buf, size, "num%c", '1' + (int)(sc - SDL_SCANCODE_KP_1)); return buf; }
-    if (sc >= SDL_SCANCODE_F1 && sc <= SDL_SCANCODE_F12) { SDL_snprintf(buf, size, "F%d", 1 + (int)(sc - SDL_SCANCODE_F1)); return buf; }
-    if (sc >= SDL_SCANCODE_F13 && sc <= SDL_SCANCODE_F24) { SDL_snprintf(buf, size, "F%d", 13 + (int)(sc - SDL_SCANCODE_F13)); return buf; }
-    switch (sc) {
-    case SDL_SCANCODE_0: return "0";
-    case SDL_SCANCODE_KP_0: return "num0";
-    case SDL_SCANCODE_SPACE: return "Space";
-    case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER: return "Enter";
-    case SDL_SCANCODE_KP_PERIOD: return "numdec";
-    case SDL_SCANCODE_KP_PLUS: return "numadd";
-    case SDL_SCANCODE_KP_MINUS: return "numsub";
-    case SDL_SCANCODE_KP_MULTIPLY: return "nummult";
-    case SDL_SCANCODE_KP_DIVIDE: return "numdiv";
-    case SDL_SCANCODE_SEMICOLON: return ";";
-    case SDL_SCANCODE_APOSTROPHE: return "'";
-    case SDL_SCANCODE_COMMA: return ",";
-    case SDL_SCANCODE_PERIOD: return ".";
-    case SDL_SCANCODE_SLASH: return "/";
-    case SDL_SCANCODE_BACKSLASH: return "\\";
-    case SDL_SCANCODE_LEFTBRACKET: return "[";
-    case SDL_SCANCODE_RIGHTBRACKET: return "]";
-    case SDL_SCANCODE_GRAVE: return "`";
-    case SDL_SCANCODE_MINUS: return "-";
-    case SDL_SCANCODE_EQUALS: return "=";
-    case SDL_SCANCODE_UP: return "Up";
-    case SDL_SCANCODE_DOWN: return "Down";
-    case SDL_SCANCODE_LEFT: return "Left";
-    case SDL_SCANCODE_RIGHT: return "Right";
-    case SDL_SCANCODE_HOME: return "Home";
-    case SDL_SCANCODE_END: return "End";
-    case SDL_SCANCODE_PAGEUP: return "PageUp";
-    case SDL_SCANCODE_PAGEDOWN: return "PageDown";
-    case SDL_SCANCODE_INSERT: return "Insert";
-    case SDL_SCANCODE_DELETE: return "Delete";
-    case SDL_SCANCODE_BACKSPACE: return "Backspace";
-    default: return NULL;
-    }
-}
-
-bool eh_accelerator_from_key(const SDL_KeyboardEvent *k, char *out, size_t size) {
-    char key[16];
-    const char *name = accelerator_key(k, key, sizeof key);
-    bool ctrl = k->mod & SDL_KMOD_CTRL, gui = k->mod & SDL_KMOD_GUI, alt = k->mod & SDL_KMOD_ALT, shift = k->mod & SDL_KMOD_SHIFT;
-    if (!name || !(ctrl || gui || alt || shift)) return false;  // at least one modifier
-#ifdef __APPLE__
-    const char *ctrl_name = "Control+", *gui_name = "Command+";
-#else
-    const char *ctrl_name = "CommandOrControl+", *gui_name = "Super+";
-#endif
-    SDL_snprintf(out, size, "%s%s%s%s%s", ctrl ? ctrl_name : "", gui ? gui_name : "", alt ? "Alt+" : "", shift ? "Shift+" : "", name);
-    return true;
-}
-
-static bool is_field_focused(eh_ui *ui) {
-    for (int i = 0; i < ui->last_count; i++)
-        if (ui->last[i].id == ui->focus) return ui->last[i].field;
-    return false;
-}
-
-static bool take_event(eh_ui *ui, const SDL_Event *e) {
+// Whether the event is this window's, and what of it the layer itself keeps.
+static bool mine(eh_ui *ui, const SDL_Event *e) {
     SDL_WindowID id = SDL_GetWindowID(ui->win);
     switch (e->type) {
     case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
         if (e->window.windowID != id) return false;
         ui->close_asked = true;
         return true;
-    case SDL_EVENT_WINDOW_FOCUS_LOST:
-        if (e->window.windowID != id) return false;
-        if (ui->capturing) ui->capture_ended = true;
-        return true;
     case SDL_EVENT_MOUSE_MOTION:
         if (e->motion.windowID != id) return false;
         ui->mx = e->motion.x, ui->my = e->motion.y;
-        break;
+        return true;
     case SDL_EVENT_MOUSE_BUTTON_DOWN: case SDL_EVENT_MOUSE_BUTTON_UP:
         if (e->button.windowID != id) return false;
         ui->mx = e->button.x, ui->my = e->button.y;
-        if (e->button.button == SDL_BUTTON_LEFT) {
-            ui->down = e->type == SDL_EVENT_MOUSE_BUTTON_DOWN;
-            if (ui->down) ui->press_x = ui->mx, ui->press_y = ui->my, ui->by_keyboard = false;
-        }
-        break;
-    case SDL_EVENT_MOUSE_WHEEL:
-        if (e->wheel.windowID != id) return false;
-        ui->wheel += e->wheel.y;
-        break;
-    case SDL_EVENT_KEY_DOWN: {
+        if (e->button.button == SDL_BUTTON_LEFT) ui->down = e->type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+        return true;
+    case SDL_EVENT_MOUSE_WHEEL: return e->wheel.windowID == id;
+    case SDL_EVENT_KEY_DOWN:
         if (e->key.windowID != id) return false;
-        SDL_Keycode k = e->key.key;
-        if (ui->capturing) {
-            // Everything but Tab is the field's: Escape ends the capture, a combination fills it.
-            if (k == SDLK_TAB) { ui->capture_ended = true; break; }
-            if (k == SDLK_ESCAPE) ui->capture_ended = true;
-            else eh_accelerator_from_key(&e->key, ui->captured, sizeof ui->captured);
-            return true;
-        }
-        if (k == SDLK_ESCAPE) {
-            // gs_ui's fields empty themselves on Escape, which a settings field must not.
-            if (ui->asking || is_field_focused(ui)) { ui->escape = true; return true; }
-            ui->close_asked = true;
-            return true;
-        }
-        bool field = is_field_focused(ui);
-        bool chord = e->key.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI | SDL_KMOD_ALT);  // a shortcut, which is the window's
-        if (!field && !chord && (k == SDLK_SPACE || k == SDLK_RETURN || k == SDLK_KP_ENTER)) { ui->activate = true; return true; }
-        if (!field && (k == SDLK_UP || k == SDLK_LEFT)) ui->arrow = -1, ui->arrow_shift = (e->key.mod & SDL_KMOD_SHIFT) != 0;
-        if (!field && (k == SDLK_DOWN || k == SDLK_RIGHT)) ui->arrow = 1, ui->arrow_shift = (e->key.mod & SDL_KMOD_SHIFT) != 0;
-        break;
+        if (e->key.key == SDLK_ESCAPE) ui->escape = true;
+        return true;
+    case SDL_EVENT_KEY_UP: return e->key.windowID == id;
+    case SDL_EVENT_TEXT_INPUT: return e->text.windowID == id;
+    case SDL_EVENT_TEXT_EDITING: return e->edit.windowID == id;
+    default: return e->type >= SDL_EVENT_WINDOW_FIRST && e->type <= SDL_EVENT_WINDOW_LAST && e->window.windowID == id;
     }
-    case SDL_EVENT_KEY_UP: case SDL_EVENT_TEXT_INPUT: case SDL_EVENT_TEXT_EDITING:
-        if (e->key.windowID != id) return false;
-        if (ui->capturing) return true;
-        break;
-    case SDL_EVENT_WINDOW_EXPOSED: case SDL_EVENT_WINDOW_RESIZED: case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: case SDL_EVENT_WINDOW_SHOWN:
-    case SDL_EVENT_WINDOW_FOCUS_GAINED: case SDL_EVENT_WINDOW_MOUSE_LEAVE: case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
-        return e->window.windowID == id;
-    default: return false;
-    }
+}
+
+bool eh_ui_event(eh_ui *ui, const SDL_Event *e) {
+    if (!mine(ui, e)) return false;
+    if (e->type != SDL_EVENT_MOUSE_MOTION) ui->input = true;
     gs_ui_event(ui->gs, e);
     return true;
 }
 
-bool eh_ui_event(eh_ui *ui, const SDL_Event *e) {
-    bool mine = take_event(ui, e);
-    if (mine && e->type != SDL_EVENT_MOUSE_MOTION) ui->input = true;
-    return mine;
-}
-
-void eh_ui_focus(eh_ui *ui, const char *id) {
-    ui->focus = id ? hash(id) : 0;
-    gs_ui_focus(ui->gs, NULL);
-}
-
-bool eh_ui_focused(eh_ui *ui, const char *id) { return ui->focus == hash(id); }
+void eh_ui_focus(eh_ui *ui, const char *id) { gs_ui_focus(ui->gs, id); }
+bool eh_ui_focused(eh_ui *ui, const char *id) { return gs_ui_focused(ui->gs, id); }
 int eh_ui_stops(eh_ui *ui) { return ui->count; }
-const char *eh_ui_stop_name(eh_ui *ui, int index) { return index >= 0 && index < ui->count ? ui->order[index].name : ""; }
+const char *eh_ui_stop_name(eh_ui *ui, int index) { return index >= 0 && index < ui->count ? ui->drawn[index].name : ""; }
+
+static seen *find(eh_ui *ui, const char *id) {
+    for (int i = 0; i < ui->count; i++)
+        if (!SDL_strcmp(ui->drawn[i].name, id)) return &ui->drawn[i];
+    return NULL;
+}
 
 bool eh_ui_stop_rect(eh_ui *ui, const char *id, gs_rect *r) {
-    Uint32 h = hash(id);
-    for (int i = 0; i < ui->count; i++)
-        if (ui->order[i].id == h) { *r = ui->order[i].r; return true; }
-    return false;
+    seen *s = find(ui, id);
+    if (s) *r = s->r;
+    return s != NULL;
 }
 
 bool eh_ui_stop_paged(eh_ui *ui, const char *id) {
-    Uint32 h = hash(id);
-    for (int i = 0; i < ui->count; i++)
-        if (ui->order[i].id == h) return ui->order[i].paged;
-    return false;
+    seen *s = find(ui, id);
+    return s && s->paged;
 }
 
 const char *eh_ui_focus_name(eh_ui *ui) {
     for (int i = 0; i < ui->count; i++)
-        if (ui->order[i].id == ui->focus) return ui->order[i].name;
+        if (gs_ui_focused(ui->gs, ui->drawn[i].name)) return ui->drawn[i].name;
     return "";
 }
 
-void eh_ui_inert(eh_ui *ui, bool inert, bool dim) {
-    ui->inert = inert || ui->asking;
-    ui->dim = dim;
+// A control that can be used is noted, by its name and where it is.
+static void note(eh_ui *ui, const char *id, gs_rect r) {
+    if (ui->inert || ui->asking || ui->count >= SEEN) return;
+    seen *s = &ui->drawn[ui->count++];
+    SDL_strlcpy(s->name, id, sizeof s->name);
+    s->r = r;
+    s->paged = ui->paging;
 }
 
-SDL_FColor eh_ui_ink(eh_ui *ui, unsigned rgb, float alpha) { return eh_rgba(rgb, ui->dim ? alpha * 0.45f : alpha); }
+void eh_ui_inert(eh_ui *ui, bool inert, bool dim) {
+    ui->inert = inert;
+    ui->dim = dim;
+    gs_ui_disable(ui->gs, inert, dim);
+}
+
+SDL_FColor eh_ui_ink(eh_ui *ui, unsigned rgb, float alpha) { return eh_rgba(rgb, alpha); }
 
 gs_rect eh_ui_begin(eh_ui *ui) {
+    ui->was_capturing = gs_ui_capturing(ui->gs);
     gs_rect area = gs_ui_begin(ui->gs);
-    ui->again = -1;
-    ui->inert = ui->asking;
-    ui->dim = false;
+    ui->inert = ui->dim = false;
     ui->asked_now = false;
-    // Tab walks the stops the last frame drew.
-    int step = gs_ui_key(ui->gs, SDLK_TAB, SDL_KMOD_SHIFT) ? -1 : gs_ui_key(ui->gs, SDLK_TAB, 0) ? 1 : 0;
-    if (ui->escape && !ui->asking) gs_ui_focus(ui->gs, NULL);  // with a field focused: the field lets go
-    SDL_memcpy(ui->last, ui->order, sizeof(stop) * (size_t)ui->count);
-    ui->last_count = ui->count;
     ui->count = 0;
-    if (step && ui->last_count) {
-        int at = -1;
-        for (int i = 0; i < ui->last_count; i++)
-            if (ui->last[i].id == ui->focus) at = i;
-        at = at < 0 ? (step > 0 ? 0 : ui->last_count - 1) : (at + step + ui->last_count) % ui->last_count;
-        const stop *s = &ui->last[at];
-        ui->focus = s->id;
-        ui->by_keyboard = true;
-        gs_ui_focus(ui->gs, s->field ? s->name : NULL);
-        // Brought into view, with room around it.
-        if (s->paged && (s->r.y < ui->view.y + 12 || s->r.y + s->r.h > ui->view.y + ui->view.h - 12)) {
-            float mid = s->r.y + s->r.h / 2 - (ui->view.y + ui->view.h / 2);
-            eh_scroll_to(ui, ui->scroll + mid, false);
-        }
-    }
     SDL_SetRenderDrawColorFloat(ui->r, 0x18 / 255.0f, 0x18 / 255.0f, 0x1b / 255.0f, 1);
     SDL_RenderClear(ui->r);
     return area;
 }
 
 int eh_ui_end(eh_ui *ui) {
-    // A focus that no stop of this frame has is dropped, so Tab starts over from the top.
-    bool found = false;
-    for (int i = 0; i < ui->count; i++) found = found || ui->order[i].id == ui->focus;
-    if (!found && ui->focus && !ui->asking) ui->focus = 0;
-    ui->activate = false;
+    // Escape that no field, question or capture took closes the window.
+    if (gs_ui_key(ui->gs, SDLK_ESCAPE, 0) && !ui->asking && !ui->was_capturing) ui->close_asked = true;
     ui->escape = false;
-    ui->arrow = 0;
-    ui->wheel = 0;
-    ui->scrolling = false;
+    ui->paging = false;
     // What an input changed shows on the frame after the one that took it.
-    if (ui->input) want_frame(ui, 0);
+    if (ui->input) gs_ui_wake(ui->gs, 0);
     ui->input = false;
     gs_ui_end(ui->gs);
     SDL_RenderPresent(ui->r);
-    int gs = gs_ui_wait_ms(ui->gs);
-    return ui->again < 0 ? gs : gs < 0 ? ui->again : SDL_min(gs, ui->again);
+    return gs_ui_wait_ms(ui->gs);
 }
 
 /* ---------------- the page ---------------- */
 
 float eh_scroll_begin(eh_ui *ui, gs_rect area, float content_h) {
-    float max = SDL_max(0, content_h - area.h);
-    ui->view = area;
-    ui->content = content_h;
-    ui->scrolling = true;
-    if (ui->wheel != 0 && gs_rect_contains(area, ui->mx, ui->my) && !ui->asking) {
-        ui->scroll -= ui->wheel * 48;
-        ui->gliding = false;
-    }
-    if (ui->gliding) {
-        float d = SDL_clamp(ui->target, 0, max) - ui->scroll;
-        if (SDL_fabsf(d) < 0.5f) ui->scroll += d, ui->gliding = false;
-        else ui->scroll += d * 0.28f, want_frame(ui, 16);
-    }
-    ui->scroll = SDL_clamp(ui->scroll, 0, max);
-    gs_ui_clip(ui->gs, &area);
-    return area.y - floorf(ui->scroll);
+    ui->paging = true;
+    return gs_ui_page_begin(ui->gs, area, PAGE).y;
 }
 
-void eh_scroll_end(eh_ui *ui) {
-    gs_ui_clip(ui->gs, NULL);
-    gs_rect v = ui->view;
-    if (ui->content > v.h + 1) {
-        float h = SDL_max(28, v.h * v.h / ui->content), y = v.y + (v.h - h) * ui->scroll / (ui->content - v.h);
-        eh_w_round(ui, (gs_rect){ v.x + v.w - 7, y, 4, h }, 2, eh_rgba(0xffffff, 0.22f));
-    }
-    ui->scrolling = false;
+void eh_scroll_end(eh_ui *ui, float bottom) {
+    gs_ui_page_end(ui->gs, bottom);
+    ui->paging = false;
 }
 
-void eh_scroll_reclip(eh_ui *ui) { gs_ui_clip(ui->gs, ui->scrolling ? &ui->view : NULL); }
-float eh_scroll_y(eh_ui *ui) { return ui->scroll; }
-
-void eh_scroll_to(eh_ui *ui, float y, bool glide) {
-    if (glide) ui->target = y, ui->gliding = true, want_frame(ui, 16);
-    else ui->scroll = y, ui->gliding = false;
-}
+void eh_scroll_reclip(eh_ui *ui) {}
+float eh_scroll_y(eh_ui *ui) { return gs_ui_page_scroll(ui->gs, PAGE); }
+void eh_scroll_to(eh_ui *ui, float y, bool glide) { gs_ui_page_scroll_to(ui->gs, PAGE, y, glide); }
 
 /* ---------------- drawing ---------------- */
 
-void eh_w_round(eh_ui *ui, gs_rect r, float radius, SDL_FColor fill) {
-    float s = gs_ui_scale(ui->gs);
-    eh_fill_round(ui->r, r.x * s, r.y * s, r.w * s, r.h * s, radius * s, fill);
-}
-
-void eh_w_outline(eh_ui *ui, gs_rect r, float radius, SDL_FColor c) {
-    float s = gs_ui_scale(ui->gs);
-    eh_stroke_round(ui->r, r.x * s, r.y * s, r.w * s, r.h * s, radius * s, SDL_max(1, floorf(s)), c);
-}
+void eh_w_round(eh_ui *ui, gs_rect r, float radius, SDL_FColor fill) { gs_ui_round(ui->gs, r, radius, fill); }
+void eh_w_outline(eh_ui *ui, gs_rect r, float radius, SDL_FColor c) { gs_ui_outline(ui->gs, r, radius, 1, c); }
 
 void eh_w_icon(eh_ui *ui, gs_rect r) {
     if (ui->icon) gs_ui_texture(ui->gs, r, ui->icon, NULL);
@@ -420,256 +232,100 @@ float eh_w_text_height(eh_ui *ui, const char *text, float px, float width) { ret
 
 /* ---------------- controls ---------------- */
 
-// Whether the pointer can reach a control at r: not while the controls are inert, and not where
-// the page's edge has cut it off.
-static bool reachable(eh_ui *ui, gs_rect r) {
-    if (ui->inert) return false;
-    if (ui->scrolling && !gs_rect_contains(ui->view, ui->mx, ui->my)) return false;
-    return gs_rect_contains(r, ui->mx, ui->my);
-}
-
-static bool visible(eh_ui *ui, gs_rect r) { return !ui->scrolling || (r.y + r.h > ui->view.y && r.y < ui->view.y + ui->view.h); }
-
-// Enters a control into the Tab order. True when it has the keyboard.
-static bool stop_at(eh_ui *ui, const char *id, gs_rect r, bool field) {
-    if (ui->inert) return false;
-    Uint32 h = hash(id);
-    if (ui->count < ORDER) {
-        stop *s = &ui->order[ui->count++];
-        s->id = h, s->r = r, s->field = field, s->paged = ui->scrolling;
-        SDL_strlcpy(s->name, id, sizeof s->name);
-    }
-    return ui->focus == h;
-}
-
-static void focus_ring(eh_ui *ui, gs_rect r, float radius) {
-    float s = gs_ui_scale(ui->gs);
-    r = gs_inset(r, -3);
-    eh_stroke_round(ui->r, r.x * s, r.y * s, r.w * s, r.h * s, (radius + 3) * s, FOCUS_RING * s, eh_rgba(EH_TEXT, 0.9f));
-}
-
-// A click on a control that is not a field: it takes the focus, and any field loses the keyboard.
-static bool clicked(eh_ui *ui, const char *id, gs_rect r) {
-    if (!reachable(ui, r) || !gs_ui_clicked(ui->gs, r)) return false;
-    ui->focus = hash(id);
-    gs_ui_focus(ui->gs, NULL);
-    return true;
-}
-
 float eh_w_button_width(eh_ui *ui, const char *label) { return gs_ui_text_width(ui->gs, label, 13) + 28; }
 
+// The buttons are the design's own; gs_ui gives them their place in the Tab order, the click, the
+// keys and the focus mark.
 bool eh_w_button(eh_ui *ui, gs_rect r, const char *id, const char *label, eh_btn kind) {
-    bool focused = stop_at(ui, id, r, false), hot = reachable(ui, r);
-    bool nav = kind == EH_BTN_NAV || kind == EH_BTN_NAV_ON;
+    note(ui, id, r);
+    bool hit = gs_ui_activated(ui->gs, r, id), hot = gs_ui_hovered(ui->gs, r);
+    bool nav = kind == EH_BTN_NAV || kind == EH_BTN_NAV_ON, faded = ui->inert && !ui->dim;
     float radius = nav ? 8 : r.h / 2;
-    if (!visible(ui, r)) return focused && ui->activate;
-    SDL_FColor text = eh_ui_ink(ui, EH_TEXT, ui->inert ? 0.5f : 1);
+    SDL_FColor text = eh_rgba(EH_TEXT, faded ? 0.5f : 1);
     if (kind == EH_BTN_PRIMARY) {
-        eh_w_round(ui, r, radius, eh_ui_ink(ui, hot ? 0xffffff : EH_TEXT, ui->inert ? 0.5f : 1));
+        gs_ui_round(ui->gs, r, radius, eh_rgba(hot ? 0xffffff : EH_TEXT, faded ? 0.5f : 1));
         text = eh_rgba(EH_INK, 1);
     } else if (nav) {
-        if (kind == EH_BTN_NAV_ON || hot) eh_w_round(ui, r, radius, kind == EH_BTN_NAV_ON ? EH_WASH : EH_WASH_FAINT);
-        if (kind != EH_BTN_NAV_ON && !hot) text = eh_ui_ink(ui, EH_TEXT_DIM, 1);
+        if (kind == EH_BTN_NAV_ON || hot) gs_ui_round(ui->gs, r, radius, kind == EH_BTN_NAV_ON ? EH_WASH : EH_WASH_FAINT);
+        if (kind != EH_BTN_NAV_ON && !hot) text = eh_rgba(EH_TEXT_DIM, 1);
     } else {
-        eh_w_round(ui, r, radius, kind == EH_BTN_DANGER && hot ? eh_rgba(EH_ERR, 0.14f) : eh_rgba(0xffffff, hot ? 0.14f : 0.08f));
+        gs_ui_round(ui->gs, r, radius, kind == EH_BTN_DANGER && hot ? eh_rgba(EH_ERR, 0.14f) : eh_rgba(0xffffff, hot ? 0.14f : 0.08f));
         if (kind == EH_BTN_DANGER && hot) text = eh_rgba(EH_ERR, 1);
     }
     if (nav) gs_ui_text(ui->gs, (gs_rect){ r.x + 12, r.y, r.w - 20, r.h }, label, 13, text, -1);
     else gs_ui_text(ui->gs, gs_inset(r, 4), label, 13, text, 0);
-    if (focused && ui->by_keyboard) focus_ring(ui, r, radius);
-    return clicked(ui, id, r) || (focused && ui->activate);
-}
-
-bool eh_w_switch(eh_ui *ui, gs_rect r, const char *id, bool *on) {
-    bool focused = stop_at(ui, id, r, false);
-    bool hit = clicked(ui, id, r) || (focused && ui->activate);
-    if (hit) *on = !*on;
-    if (!visible(ui, r)) return hit;
-    eh_w_round(ui, r, r.h / 2, *on ? eh_ui_ink(ui, EH_TEXT, 1) : eh_ui_ink(ui, 0xffffff, 0.1f));
-    if (!*on) eh_w_outline(ui, r, r.h / 2, EH_EDGE);
-    float s = gs_ui_scale(ui->gs), cx = *on ? r.x + r.w - 11 : r.x + 11;
-    eh_fill_circle(ui->r, cx * s, (r.y + r.h / 2) * s, 8 * s, *on ? eh_rgba(EH_INK, 1) : eh_ui_ink(ui, EH_TEXT_DIM, 1));
-    if (focused && ui->by_keyboard) focus_ring(ui, r, r.h / 2);
+    gs_ui_focus_mark(ui->gs, r, id, radius);
     return hit;
 }
 
+bool eh_w_switch(eh_ui *ui, gs_rect r, const char *id, bool *on) {
+    note(ui, id, r);
+    return gs_ui_switch(ui->gs, r, id, on);
+}
+
 bool eh_w_radio(eh_ui *ui, gs_rect r, const char *id, const char *label, bool selected) {
-    bool focused = stop_at(ui, id, r, false);
-    bool hit = clicked(ui, id, r) || (focused && ui->activate);
-    if (!visible(ui, r)) return hit && !selected;
-    float s = gs_ui_scale(ui->gs), cx = (r.x + 9) * s, cy = (r.y + r.h / 2) * s;
-    eh_stroke_round(ui->r, cx - 8 * s, cy - 8 * s, 16 * s, 16 * s, 8 * s, 1.5f * s, eh_ui_ink(ui, selected ? EH_TEXT : EH_FIELD_EDGE, 1));
-    if (selected) eh_fill_circle(ui->r, cx, cy, 4.5f * s, eh_ui_ink(ui, EH_TEXT, 1));
-    gs_ui_text(ui->gs, (gs_rect){ r.x + 26, r.y, r.w - 26, r.h }, label, 13, eh_ui_ink(ui, EH_TEXT, reachable(ui, r) || selected ? 1 : 0.86f), -1);
-    if (focused && ui->by_keyboard) focus_ring(ui, (gs_rect){ r.x, r.y + r.h / 2 - 9, 18, 18 }, 9);
-    return hit && !selected;
-}
-
-// A field's look without gs_ui behind it, for one that must not take clicks.
-static void still_field(eh_ui *ui, gs_rect r, const char *text, bool placeholder) {
-    gs_ui_fill(ui->gs, r, eh_rgba(EH_FIELD, 1));
-    gs_ui_frame(ui->gs, r, eh_ui_ink(ui, EH_FIELD_EDGE, 1));
-    gs_ui_text(ui->gs, (gs_rect){ r.x + 8, r.y, r.w - 16, r.h }, text, 13, eh_ui_ink(ui, placeholder ? EH_TEXT_DIM : EH_TEXT, 1), -1);
-}
-
-// gs_ui's own controls know nothing of the page's edge or of inert controls: they are drawn only
-// where the pointer may use all of what shows.
-static bool live(eh_ui *ui, gs_rect r) {
-    if (ui->inert) return false;
-    if (!ui->scrolling) return true;
-    bool whole = r.y >= ui->view.y && r.y + r.h <= ui->view.y + ui->view.h;
-    return whole || gs_rect_contains(ui->view, ui->mx, ui->my);
-}
-
-// After a gs_ui field drew: the kit's focus follows a click into it or out of it.
-static void follow_field(eh_ui *ui, const char *id) {
-    Uint32 h = hash(id);
-    if (gs_ui_focused(ui->gs, id)) ui->focus = h;
-    else if (ui->focus == h) ui->focus = 0;
-}
-
-bool eh_w_field(eh_ui *ui, gs_rect r, const char *id, char *buf, size_t size, const char *placeholder, int flags) {
-    bool focused = stop_at(ui, id, r, true);
-    if (!visible(ui, r)) return false;
-    bool masked = (flags & EH_FIELD_MASKED) && !gs_ui_focused(ui->gs, id) && buf[0];
-    if (!live(ui, r) || masked) {
-        char dots[64] = "";
-        for (size_t i = 0, n = SDL_min(SDL_utf8strlen(buf), 20); masked && i < n; i++) SDL_strlcat(dots, "•", sizeof dots);
-        still_field(ui, r, masked ? dots : buf[0] ? buf : placeholder ? placeholder : "", !masked && !buf[0]);
-        // A click or Tab into a masked field shows it for editing.
-        if (masked && !ui->inert && ((reachable(ui, r) && gs_ui_clicked(ui->gs, r)) || focused)) gs_ui_focus(ui->gs, id), ui->focus = hash(id);
-        return false;
-    }
-    bool changed = gs_ui_field(ui->gs, r, id, buf, size, placeholder);
-    follow_field(ui, id);
-    return changed;
-}
-
-bool eh_w_textarea(eh_ui *ui, gs_rect r, const char *id, char *buf, size_t size, const char *placeholder) {
-    stop_at(ui, id, r, true);
-    if (!visible(ui, r)) return false;
-    if (!live(ui, r)) {
-        gs_ui_fill(ui->gs, r, eh_rgba(EH_FIELD, 1));
-        gs_ui_frame(ui->gs, r, eh_ui_ink(ui, EH_FIELD_EDGE, 1));
-        gs_rect in = gs_inset(r, 8);
-        gs_rect clip = r;
-        if (ui->scrolling) {  // the page's clip and the field's, together
-            float top = SDL_max(r.y, ui->view.y), bottom = SDL_min(r.y + r.h, ui->view.y + ui->view.h);
-            clip = (gs_rect){ r.x, top, r.w, SDL_max(0, bottom - top) };
-        }
-        gs_ui_clip(ui->gs, &clip);
-        gs_ui_text_wrapped(ui->gs, in, buf[0] ? buf : placeholder ? placeholder : "", 13, eh_ui_ink(ui, buf[0] ? EH_TEXT : EH_TEXT_DIM, 1));
-        gs_ui_clip(ui->gs, ui->scrolling ? &ui->view : NULL);
-        return false;
-    }
-    bool changed = gs_ui_textarea(ui->gs, r, id, buf, size, placeholder);
-    if (ui->scrolling) gs_ui_clip(ui->gs, &ui->view);  // the textarea ends its own clip, and the page's with it
-    follow_field(ui, id);
-    return changed;
+    note(ui, id, r);
+    return gs_ui_radio(ui->gs, r, id, label, selected);
 }
 
 bool eh_w_select(eh_ui *ui, gs_rect r, const char *id, const char *const *items, int count, int *selected) {
-    bool focused = stop_at(ui, id, r, false);
-    if (!visible(ui, r)) return false;
-    bool changed = false;
-    if (!live(ui, r)) {
-        still_field(ui, r, *selected >= 0 && *selected < count ? items[*selected] : "", false);
-    } else {
-        changed = gs_ui_dropdown(ui->gs, r, id, items, count, selected);
-        if (reachable(ui, r) && gs_ui_clicked(ui->gs, r)) ui->focus = hash(id), gs_ui_focus(ui->gs, NULL);
-        gs_ui_frame(ui->gs, r, eh_rgba(EH_FIELD_EDGE, 1));
-    }
-    // With the keyboard the choice moves without the list opening, as a system's own select does.
-    if (focused && ui->arrow && count > 0) {
-        int next = SDL_clamp(*selected + ui->arrow, 0, count - 1);
-        changed = changed || next != *selected;
-        *selected = next;
-    }
-    if (focused && ui->by_keyboard) focus_ring(ui, r, 2);
-    return changed;
+    note(ui, id, r);
+    return gs_ui_dropdown(ui->gs, r, id, items, count, selected);
+}
+
+bool eh_w_field(eh_ui *ui, gs_rect r, const char *id, char *buf, size_t size, const char *placeholder, int flags) {
+    note(ui, id, r);
+    return gs_ui_input(ui->gs, r, id, buf, size, placeholder, GS_UI_KEEP | (flags & EH_FIELD_MASKED ? GS_UI_MASKED | GS_UI_REVEAL : 0));
+}
+
+bool eh_w_textarea(eh_ui *ui, gs_rect r, const char *id, char *buf, size_t size, const char *placeholder) {
+    note(ui, id, r);
+    return gs_ui_textarea(ui->gs, r, id, buf, size, placeholder);
 }
 
 bool eh_w_stops(eh_ui *ui, gs_rect r, const char *id, int *value, int count) {
-    bool focused = stop_at(ui, id, r, false);
-    if (!visible(ui, r) || count < 2) return false;
-    int before = *value;
-    float s = gs_ui_scale(ui->gs), x0 = r.x + 9, x1 = r.x + r.w - 9, y = r.y + r.h / 2;
-    if (reachable(ui, r) && (gs_ui_clicked(ui->gs, r) || (ui->down && gs_rect_contains(r, ui->press_x, ui->press_y)))) {
-        *value = SDL_clamp((int)floorf((ui->mx - x0) / (x1 - x0) * (float)(count - 1) + 0.5f), 0, count - 1);
-        ui->focus = hash(id);
-        gs_ui_focus(ui->gs, NULL);
-        want_frame(ui, 16);
-    }
-    if (focused && ui->arrow) *value = SDL_clamp(*value + ui->arrow, 0, count - 1);
-    float knob = x0 + (x1 - x0) * (float)*value / (float)(count - 1);
-    eh_w_round(ui, (gs_rect){ x0, y - 2, x1 - x0, 4 }, 2, eh_ui_ink(ui, 0xffffff, 0.12f));
-    eh_w_round(ui, (gs_rect){ x0, y - 2, knob - x0, 4 }, 2, eh_ui_ink(ui, EH_TEXT, 1));
-    for (int i = 0; i < count; i++) eh_fill_circle(ui->r, (x0 + (x1 - x0) * (float)i / (float)(count - 1)) * s, y * s, 2.5f * s, eh_ui_ink(ui, i <= *value ? EH_TEXT : EH_TEXT_DIM, 1));
-    eh_fill_circle(ui->r, knob * s, y * s, 8 * s, eh_ui_ink(ui, EH_TEXT, 1));
-    if (focused && ui->by_keyboard) focus_ring(ui, (gs_rect){ knob - 8, y - 8, 16, 16 }, 8);
-    return *value != before;
+    note(ui, id, r);
+    return gs_ui_stops(ui->gs, r, id, value, count);
 }
 
 bool eh_w_hotkey(eh_ui *ui, gs_rect r, const char *id, const char *shown, const char *placeholder, char *out, size_t size) {
-    Uint32 h = hash(id);
-    bool focused = stop_at(ui, id, r, false), capturing = ui->capturing == h, got = false;
-    if (capturing && (ui->capture_ended || ui->focus != h || ui->inert)) capturing = false, ui->capturing = 0, ui->capture_ended = false;
-    if (capturing && ui->captured[0]) {
-        SDL_strlcpy(out, ui->captured, size);
-        got = true;
-        capturing = false;
-        ui->capturing = 0;
+    note(ui, id, r);
+    return gs_ui_hotkey(ui->gs, r, id, shown, placeholder, out, size);
+}
+
+bool eh_ui_custom_stop(eh_ui *ui, const char *id, gs_rect r, int *arrow, bool *shift, bool *activated) {
+    note(ui, id, r);
+    bool hit = gs_ui_activated(ui->gs, r, id), focused = gs_ui_focused(ui->gs, id) && !ui->inert && !ui->asking;
+    int a = 0;
+    bool s = false;
+    if (focused) {
+        // Shift is asked for first: a plain press matches with or without it.
+        if (gs_ui_key(ui->gs, SDLK_RIGHT, SDL_KMOD_SHIFT) || gs_ui_key(ui->gs, SDLK_DOWN, SDL_KMOD_SHIFT)) a = 1, s = true;
+        else if (gs_ui_key(ui->gs, SDLK_LEFT, SDL_KMOD_SHIFT) || gs_ui_key(ui->gs, SDLK_UP, SDL_KMOD_SHIFT)) a = -1, s = true;
+        else if (gs_ui_key(ui->gs, SDLK_RIGHT, 0) || gs_ui_key(ui->gs, SDLK_DOWN, 0)) a = 1;
+        else if (gs_ui_key(ui->gs, SDLK_LEFT, 0) || gs_ui_key(ui->gs, SDLK_UP, 0)) a = -1;
     }
-    if (!capturing && (clicked(ui, id, r) || (focused && ui->activate))) {
-        ui->capturing = h;
-        ui->captured[0] = 0;
-        ui->capture_ended = false;
-        capturing = true;
-    }
-    if (!visible(ui, r)) return got;
-    // Waiting for keys is the one coral moment of these windows.
-    gs_ui_fill(ui->gs, r, eh_rgba(EH_FIELD, 1));
-    gs_ui_frame(ui->gs, r, capturing ? eh_rgba(EH_ACCENT, 1) : eh_ui_ink(ui, reachable(ui, r) ? EH_TEXT_DIM : EH_FIELD_EDGE, 1));
-    const char *text = capturing ? "Press keys…" : got ? out : shown && *shown ? shown : placeholder;
-    bool dim = !capturing && !(got || (shown && *shown));
-    gs_ui_text(ui->gs, (gs_rect){ r.x + 11, r.y, r.w - 22, r.h }, text, 13, capturing ? eh_rgba(EH_ACCENT, 1) : eh_ui_ink(ui, dim ? EH_TEXT_DIM : EH_TEXT, 1), -1);
-    if (focused && ui->by_keyboard && !capturing) focus_ring(ui, r, 2);
-    return got;
+    if (arrow) *arrow = a;
+    if (shift) *shift = s;
+    if (activated) *activated = hit;
+    return focused;
 }
 
 /* ---------------- the question ---------------- */
 
-void eh_ui_ask(eh_ui *ui, const char *question, const char *yes, bool dangerous) {
+void eh_ui_ask(eh_ui *ui, const char *question, const char *yes, const char *no, bool dangerous) {
     SDL_strlcpy(ui->question, question, sizeof ui->question);
     SDL_strlcpy(ui->yes, yes, sizeof ui->yes);
+    SDL_strlcpy(ui->no, no, sizeof ui->no);
     ui->asking = true;
     ui->dangerous = dangerous;
     ui->asked_now = true;  // the click that asked is not an answer
-    ui->focus = hash("ask-no");
-    ui->by_keyboard = true;
-    gs_ui_focus(ui->gs, NULL);
+    gs_ui_wake(ui->gs, 0);
 }
 
 int eh_ui_modal(eh_ui *ui) {
-    if (!ui->asking) return 0;
-    int w, h;
-    SDL_GetWindowSize(ui->win, &w, &h);
-    gs_ui_fill(ui->gs, (gs_rect){ 0, 0, (float)w, (float)h }, eh_rgba(0x000000, 0.55f));
-    float bw = SDL_min(420, (float)w - 48), text_h = gs_ui_text_height(ui->gs, ui->question, 14, bw - 44);
-    gs_rect box = { ((float)w - bw) / 2, ((float)h - text_h - 96) / 2, bw, text_h + 96 };
-    eh_w_round(ui, box, 14, eh_rgba(0x232327, 1));
-    eh_w_outline(ui, box, 14, EH_EDGE);
-    gs_ui_text_wrapped(ui->gs, (gs_rect){ box.x + 22, box.y + 22, bw - 44, text_h }, ui->question, 14, eh_rgba(EH_TEXT, 1));
-    // The controls under the question are inert; its own two are not.
-    bool was = ui->inert;
-    ui->inert = false;
-    float yes_w = eh_w_button_width(ui, ui->yes), no_w = eh_w_button_width(ui, "Cancel"), y = box.y + box.h - 22 - 34;
-    int answer = 0;
-    if (eh_w_button(ui, (gs_rect){ box.x + bw - 22 - yes_w, y, yes_w, 34 }, "ask-yes", ui->yes, ui->dangerous ? EH_BTN_DANGER : EH_BTN_PRIMARY)) answer = 1;
-    if (eh_w_button(ui, (gs_rect){ box.x + bw - 22 - yes_w - 10 - no_w, y, no_w, 34 }, "ask-no", "Cancel", EH_BTN_PLAIN)) answer = 2;
-    ui->inert = was;
-    if (ui->escape) answer = 2;
-    if (ui->asked_now) answer = 0;
-    if (answer) ui->asking = false, ui->focus = 0;
-    return answer;
+    if (!ui->asking || ui->asked_now) return 0;
+    int answer = gs_ui_confirm(ui->gs, ui->question, ui->yes, ui->no, ui->dangerous);
+    if (answer) ui->asking = false;
+    return answer > 0 ? 1 : answer < 0 ? 2 : 0;
 }

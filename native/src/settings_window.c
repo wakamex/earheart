@@ -713,7 +713,7 @@ static void manage(eh_model_kind kind, engine_draft *d) {
         if (button_at(&x, y, id, "Remove", EH_BTN_DANGER)) {
             char q[400];
             SDL_snprintf(q, sizeof q, m->custom ? "Remove %s and its downloaded files? You'll need to download it again to use it." : "Remove %s? You'll need to download it again to use it.", m->label ? m->label : m->id);
-            eh_ui_ask(W.ui, q, "Remove", true);
+            eh_ui_ask(W.ui, q, "Remove", "Cancel", true);
             W.ask = m->custom ? ASK_REMOVE_CUSTOM : ASK_REMOVE_MODEL;
             W.ask_model = m;
         }
@@ -743,7 +743,7 @@ static void manage(eh_model_kind kind, engine_draft *d) {
         if (button_at(&x, y, id, "Remove from list", EH_BTN_DANGER)) {
             char q[400];
             SDL_snprintf(q, sizeof q, "Remove %s from your models?", m->label ? m->label : m->id);
-            eh_ui_ask(W.ui, q, "Remove", true);
+            eh_ui_ask(W.ui, q, "Remove", "Cancel", true);
             W.ask = ASK_REMOVE_CUSTOM;
             W.ask_model = m;
         }
@@ -1041,7 +1041,7 @@ static void history(void) {
     eh_w_line(W.ui, head, "Recent transcriptions", 13, eh_rgba(EH_TEXT, 1), -1);
     float cw = eh_w_button_width(W.ui, "Clear history");
     if (eh_w_button(W.ui, (gs_rect){ head.x + head.w - cw, head.y, cw, 34 }, "history-clear", "Clear history", EH_BTN_DANGER)) {
-        eh_ui_ask(W.ui, "Clear all saved transcriptions? This can't be undone.", "Clear history", true);
+        eh_ui_ask(W.ui, "Clear all saved transcriptions? This can't be undone.", "Clear history", "Cancel", true);
         W.ask = ASK_CLEAR_HISTORY;
     }
     pg.y += 8;
@@ -1265,7 +1265,7 @@ int eh_settings_window_frame(void) {
     float content = pg.y - top + 10;
     if (SDL_fabsf(content - W.content_h) > 0.5f) W.content_h = content, eh_ui_again(W.ui, 0);
     for (int i = 0; i < SECTIONS; i++) W.section_y[i] -= top;
-    eh_scroll_end(W.ui);
+    eh_scroll_end(W.ui, pg.y + 10);
 
     // The index follows the scroll: the section whose top has passed the read line is the current
     // one, and the end of the page always lights the last. A jump holds its entry until it lands.
@@ -1287,6 +1287,10 @@ int eh_settings_window_frame(void) {
             W.section = i;
             W.spy_held = true;
             eh_scroll_to(W.ui, SDL_max(0, W.section_y[i] - 12), true);
+            // The keyboard goes into the section, so Tab carries on from there and not from the
+            // top of the page.
+            static const char *const first[SECTIONS] = { "hotkey", "stt-live-preview", "stt-engine-builtin", "cleanup-enabled", "history-enabled", "max-seconds" };
+            eh_ui_focus(W.ui, first[i]);
         }
         float s = gs_ui_scale(gs);
         eh_fill_circle(SDL_GetRenderer(eh_ui_window(W.ui)), (r.x + r.w - 14) * s, (r.y + 17) * s, 3 * s, eh_rgba(section_colours[i], i == W.section ? 1 : 0.55f));

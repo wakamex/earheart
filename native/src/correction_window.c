@@ -302,7 +302,7 @@ int eh_correction_window_frame(void) {
     // Closing with a draft is asked about first.
     if (eh_ui_close_asked(C.ui) && !C.busy && !eh_ui_asking(C.ui)) {
         if (dirty()) {
-            eh_ui_ask(C.ui, "Discard your uncopied corrections? Your original transcript stays in History. Remembered spellings have already been saved.", "Discard draft", true);
+            eh_ui_ask(C.ui, "Discard your uncopied corrections? Your original transcript stays in History. Remembered spellings have already been saved.", "Discard draft", "Keep editing", true);
             C.asking = 1;
         } else {
             C.close_now = true;
@@ -368,7 +368,7 @@ int eh_correction_window_frame(void) {
         float top = eh_scroll_begin(C.ui, box, C.content_h);
         float h = words_view((gs_rect){ inner.x, top + 10, inner.w, 0 }, focused);
         if (SDL_fabsf(h + 20 - C.content_h) > 0.5f) C.content_h = h + 20, eh_ui_again(C.ui, 0);
-        eh_scroll_end(C.ui);
+        eh_scroll_end(C.ui, top + h + 20);
     }
     y = box.y + box.h + 8;
     char picked_hint[400];
@@ -416,7 +416,7 @@ int eh_correction_window_frame(void) {
     for (const char *p = C.text; *p && !has_text; p++) has_text = *p != ' ' && *p != '\n';
     if (eh_w_button(C.ui, close_r, "cancel", "Close", EH_BTN_PLAIN)) {
         if (dirty()) {
-            eh_ui_ask(C.ui, "Discard your uncopied corrections? Your original transcript stays in History. Remembered spellings have already been saved.", "Discard draft", true);
+            eh_ui_ask(C.ui, "Discard your uncopied corrections? Your original transcript stays in History. Remembered spellings have already been saved.", "Discard draft", "Keep editing", true);
             C.asking = 1;
         } else {
             C.close_now = true;

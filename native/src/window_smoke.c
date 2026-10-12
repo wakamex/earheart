@@ -45,6 +45,10 @@ static void pointer(Uint32 type, float x, float y) {
     T.event(&e);
 }
 
+// Where the wheel is turned: the page's left margin, where no text area is under the pointer to
+// take the wheel for itself.
+#define PAGE_GUTTER_X 190
+
 static void wheel(float x, float y, float amount) {
     pointer(SDL_EVENT_MOUSE_MOTION, x, y);
     SDL_Event e = { 0 };
@@ -77,7 +81,7 @@ static bool reveal(const char *id, gs_rect *r) {
         if (!eh_ui_stop_rect(ui(), id, r)) return false;
         if (!eh_ui_stop_paged(ui(), id)) return true;  // not on the page: always where it is
         if (r->y >= 80 && r->y + r->h <= (float)h - 72) return true;
-        wheel((float)w - 200, (float)h / 2, r->y < 80 ? 1 : -1);
+        wheel(PAGE_GUTTER_X, (float)h / 2, r->y < 80 ? 1 : -1);
     }
     return false;
 }
@@ -225,9 +229,9 @@ int eh_cmd_settings_smoke(int argc, char **argv) {
     CHECK(click("tab-general"));
     for (int i = 0; i < 40; i++) frames(1), SDL_Delay(5);
     IS("section", "general");
-    for (int i = 0; i < 60; i++) wheel((float)w - 200, (float)h / 2, -3);
+    for (int i = 0; i < 60; i++) wheel(PAGE_GUTTER_X, (float)h / 2, -3);
     IS("section", "advanced");
-    for (int i = 0; i < 60; i++) wheel((float)w - 200, (float)h / 2, 3);
+    for (int i = 0; i < 60; i++) wheel(PAGE_GUTTER_X, (float)h / 2, 3);
     IS("section", "general");
 
     // A hotkey field: a click arms it, Escape lets go with nothing changed, a combination fills it,
@@ -565,9 +569,10 @@ int eh_cmd_correction_smoke(int argc, char **argv) {
 
     // Closing with a draft is asked about; kept, the draft is still there.
     CHECK(click("cancel"));
-    CHECK(T.open() && has("ask-yes") && has("ask-no"));
-    CHECK(click("ask-no"));
-    CHECK(T.open() && !has("ask-yes"));
+    frames(2);
+    CHECK(T.open() && eh_ui_asking(ui()) && !has("cancel"));
+    key(SDL_SCANCODE_RETURN, SDLK_RETURN, 0);  // the keyboard starts on the answer that keeps the draft
+    CHECK(T.open() && !eh_ui_asking(ui()) && has("cancel"));
     HOLDS("text", "I use gesso with zig and sherpa on X11");
 
     // Edited by hand, then copied with Ctrl+Enter: the clipboard holds the text and the editor closes.
