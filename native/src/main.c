@@ -410,7 +410,21 @@ static int cmd_clean(int argc, char **argv) {
     return 0;
 }
 
+#ifdef _WIN32
+#include <windows.h>
+// A windowed program has no console of its own. Started from one, the commands write to it;
+// output sent to a pipe or a file needs nothing.
+static void use_parent_console(void) {
+    if (!AttachConsole(ATTACH_PARENT_PROCESS)) return;
+    if (!GetStdHandle(STD_OUTPUT_HANDLE)) freopen("CONOUT$", "w", stdout);
+    if (!GetStdHandle(STD_ERROR_HANDLE)) freopen("CONOUT$", "w", stderr);
+}
+#else
+static void use_parent_console(void) {}
+#endif
+
 int main(int argc, char **argv) {
+    use_parent_console();
     if (argc >= 2 && !SDL_strcmp(argv[1], "--cores")) { printf("%d\n", eh_math_cores()); return 0; }
     if (argc >= 3 && !SDL_strcmp(argv[1], "--engine")) return eh_worker_main(argv[2]);
     if (argc >= 2 && !SDL_strcmp(argv[1], "transcribe")) return cmd_transcribe(argc - 2, argv + 2);
