@@ -528,17 +528,20 @@ int eh_cmd_correction_smoke(int argc, char **argv) {
     if (!T.open()) { printf("no window: %s\n", SDL_GetError()); return 1; }
     frames(4);
     CHECK(has("transcript") && has("spelling") && has("cancel") && has("copy"));
-    // Nothing picked: nothing to replace, nothing to undo.
+    // Nothing selected: nothing to replace, nothing to undo.
     CHECK(!has("remember") && !has("replace") && !has("undo"));
     CHECK(!SDL_strcmp(eh_ui_focus_name(ui()), "transcript"));
 
-    // By keyboard: the arrows pick a word, Tab goes to its spelling, Enter replaces and remembers.
-    key(SDL_SCANCODE_RIGHT, SDLK_RIGHT, 0);
-    HOLDS("spelling", "I");
-    key(SDL_SCANCODE_RIGHT, SDLK_RIGHT, 0);
-    key(SDL_SCANCODE_RIGHT, SDLK_RIGHT, 0);
+    // By keyboard: Shift with the arrows selects, Tab goes to the spelling, Enter replaces and
+    // remembers. The cursor starts at the top of the transcript.
+    for (int i = 0; i < 6; i++) key(SDL_SCANCODE_RIGHT, SDLK_RIGHT, 0);
+    HOLDS("spelling", "");
+    for (int i = 0; i < 5; i++) key(SDL_SCANCODE_RIGHT, SDLK_RIGHT, SDL_KMOD_LSHIFT);
     HOLDS("spelling", "gesso");
     CHECK(has("remember") && has("replace"));
+    // A blank at the selection's end is not part of what is replaced.
+    key(SDL_SCANCODE_RIGHT, SDLK_RIGHT, SDL_KMOD_LSHIFT);
+    HOLDS("spelling", "gesso");
     key(SDL_SCANCODE_TAB, SDLK_TAB, 0);
     CHECK(!SDL_strcmp(eh_ui_focus_name(ui()), "spelling"));
     key(SDL_SCANCODE_A, SDLK_A, SDL_KMOD_LCTRL);
@@ -548,19 +551,19 @@ int eh_cmd_correction_smoke(int argc, char **argv) {
     HOLDS("status", "Replaced and remembered “Gesso”.");
     HOLDS("spelling", "");
     CHECK(in_dictionary("Gesso") && has("undo"));
+    CHECK(!SDL_strcmp(eh_ui_focus_name(ui()), "transcript"));
 
-    // Undo puts the words back and picks them again; the spelling stays remembered.
+    // Undo puts the text back and selects it again; the spelling stays remembered.
     CHECK(click("undo"));
     HOLDS("text", "I use gesso with zig and sherpa on x eleven");
     HOLDS("spelling", "gesso");
     CHECK(in_dictionary("Gesso") && !has("undo"));
 
-    // A phrase, picked with Shift, replaced without remembering.
+    // A phrase, selected from the end, replaced without remembering.
     eh_ui_focus(ui(), "transcript");
     frames(2);
-    for (int i = 0; i < 6; i++) key(SDL_SCANCODE_RIGHT, SDLK_RIGHT, 0);
-    HOLDS("spelling", "x");
-    key(SDL_SCANCODE_RIGHT, SDLK_RIGHT, SDL_KMOD_LSHIFT);
+    key(SDL_SCANCODE_END, SDLK_END, SDL_KMOD_LCTRL);
+    for (int i = 0; i < 8; i++) key(SDL_SCANCODE_LEFT, SDLK_LEFT, SDL_KMOD_LSHIFT);
     HOLDS("spelling", "x eleven");
     key(SDL_SCANCODE_TAB, SDLK_TAB, 0);
     key(SDL_SCANCODE_A, SDLK_A, SDL_KMOD_LCTRL);
@@ -568,23 +571,27 @@ int eh_cmd_correction_smoke(int argc, char **argv) {
     CHECK(click("replace"));
     HOLDS("text", "I use gesso with zig and sherpa on X11");
     HOLDS("status", "Replaced this occurrence.");
-    CHECK(!in_dictionary("X11"));
+    CHECK(!in_dictionary("X11") && has("undo"));
 
-    // Escape in the spelling field gives up the pick and nothing else.
-    eh_ui_focus(ui(), "transcript");
-    frames(2);
-    key(SDL_SCANCODE_RIGHT, SDLK_RIGHT, 0);
+    // Escape in the spelling field gives up the selection and nothing else.
+    for (int i = 0; i < 3; i++) key(SDL_SCANCODE_LEFT, SDLK_LEFT, SDL_KMOD_LSHIFT);
+    HOLDS("spelling", "X11");
     key(SDL_SCANCODE_TAB, SDLK_TAB, 0);
     type_text("Z");
     key(SDL_SCANCODE_ESCAPE, SDLK_ESCAPE, 0);
     HOLDS("status", "Pending replacement cancelled.");
     HOLDS("spelling", "");
-    CHECK(T.open());
+    CHECK(T.open() && !SDL_strcmp(eh_ui_focus_name(ui()), "transcript"));
+
+    // The transcript changed by hand: the replacements before it can no longer be undone.
+    key(SDL_SCANCODE_END, SDLK_END, SDL_KMOD_LCTRL);
+    type_text(".");
+    HOLDS("text", "I use gesso with zig and sherpa on X11.");
+    CHECK(!has("undo"));
 
     // A spelling typed and not applied stops the copy and says what to do.
-    eh_ui_focus(ui(), "transcript");
-    frames(2);
-    key(SDL_SCANCODE_RIGHT, SDLK_RIGHT, 0);
+    for (int i = 0; i < 4; i++) key(SDL_SCANCODE_LEFT, SDLK_LEFT, SDL_KMOD_LSHIFT);
+    HOLDS("spelling", "X11.");
     key(SDL_SCANCODE_TAB, SDLK_TAB, 0);
     type_text("zz");
     key(SDL_SCANCODE_RETURN, SDLK_RETURN, SDL_KMOD_LCTRL);
@@ -594,7 +601,7 @@ int eh_cmd_correction_smoke(int argc, char **argv) {
     // Another transcript does not replace an open draft.
     CHECK(eh_correction_window_open("something else", error, sizeof error));
     frames(2);
-    HOLDS("text", "I use gesso with zig and sherpa on X11");
+    HOLDS("text", "I use gesso with zig and sherpa on X11.");
     HOLDS("status", "Your current correction is still open. Copy or close it before opening another transcript.");
 
     // Closing with a draft is asked about; kept, the draft is still there.
@@ -603,16 +610,16 @@ int eh_cmd_correction_smoke(int argc, char **argv) {
     CHECK(T.open() && eh_ui_asking(ui()) && !has("cancel"));
     key(SDL_SCANCODE_RETURN, SDLK_RETURN, 0);  // the keyboard starts on the answer that keeps the draft
     CHECK(T.open() && !eh_ui_asking(ui()) && has("cancel"));
-    HOLDS("text", "I use gesso with zig and sherpa on X11");
+    HOLDS("text", "I use gesso with zig and sherpa on X11.");
 
-    // Edited by hand, then copied with Ctrl+Enter: the clipboard holds the text and the editor closes.
-    CHECK(click("edit") && has("transcript-edit") && !has("transcript"));
-    CHECK(click("edit") && has("transcript"));
+    // The pending spelling given up, Ctrl+Enter copies: the clipboard holds the text and the editor closes.
+    CHECK(click("spelling"));
+    key(SDL_SCANCODE_ESCAPE, SDLK_ESCAPE, 0);
     key(SDL_SCANCODE_RETURN, SDLK_RETURN, SDL_KMOD_LCTRL);
     for (Uint64 until = SDL_GetTicks() + 5000; SDL_GetTicks() < until && T.open();) frames(1), SDL_Delay(10);
     CHECK(!T.open());
     char *clip = SDL_GetClipboardText();
-    CHECK(clip && !SDL_strcmp(clip, "I use gesso with zig and sherpa on X11"));
+    CHECK(clip && !SDL_strcmp(clip, "I use gesso with zig and sherpa on X11."));
     SDL_free(clip);
 
     // With nothing saved the editor says so, and an untouched one closes without a question.

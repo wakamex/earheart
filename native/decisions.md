@@ -240,7 +240,7 @@ Every surface of the Electron build at v0.39.0 and what the native build does wi
 
 | Electron build | Native build |
 |---|---|
-| Edit the last transcript, select a range, enter its correct spelling | a word or phrase is picked by click, drag or the arrow keys; Edit text swaps in a text area for changes by hand |
+| Edit the last transcript, select a range, enter its correct spelling | kept |
 | A question with Keep editing and Discard draft when closing with a draft | kept |
 | Replace and remember (adds to preferred terms), Replace only, Undo replacement | kept |
 | Copy corrected prompt and close, Ctrl or Cmd+Enter | kept |
@@ -450,7 +450,7 @@ Decisions:
 - Save goes through one path for the settings window and the wizard (`src/commit.c`), which is the Electron build's: the app's own fields and those changed elsewhere come from the live settings, hotkeys change first, a refused one keeps its saved value.
 - The hotkey rules are behind a backend of two functions, so they are tested without a desktop and the desktop code only grabs and releases keys.
 - API keys are kept in the settings file, readable only by the user, until the keychain work. The Electron build encrypts them with the system's keyring.
-- The correction editor picks words where the Electron build selects text (see the parity list). gesso's text area reports its selection as of the pin (`gs_ui_textarea_selection`), so selecting as the Electron build does is now possible and not yet done.
+- The correction editor's transcript is gesso's text area, and what is selected in it (`gs_ui_textarea_selection`) is what gets replaced, as in the Electron build. An earlier version showed the transcript as words to pick, from before gesso's text area reported its selection.
 - A file from Hugging Face without a checksum is checked by its length, and one without a known length is fetched whole each time; the Electron build also compares a resumed download's HTTP validators, which the app does not do yet; gesso's HTTP module gives a response's headers as of the pin.
 - The overlay's window exists only while it shows. Kept from start-up it took the tray app from 12 MiB to 85 MiB on the Linux host.
 - On macOS a window shown by the app activates it, since an app without a Dock icon is not made active by showing a window.

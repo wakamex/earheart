@@ -3,17 +3,14 @@
 // cleanup. The corrected text is copied to the clipboard; the original stays in History. Ported
 // from renderer/correction.js and the correction handlers of main/ipc.js and main/windows.js.
 //
-// gesso's text area does not say what is selected in it, so the transcript is shown as words to
-// pick: a click picks a word, a drag or Shift with the arrow keys a phrase. "Edit text" swaps in
-// a text area for changing the transcript by hand. Everything here runs on the main thread, with
-// the loop's lock held for the length of a frame.
+// The transcript is a text area: what is selected in it is what gets replaced, and it can be changed
+// by hand. Everything here runs on the main thread, with the loop's lock held for the length of a
+// frame.
 #include "correction_window.h"
 #include "commit.h"
 #include "deliver.h"
 #include "gs_desk.h"
-#include "fonts.h"
 #include "gs_draw.h"
-#include "gs_text.h"
 #include "loop.h"
 #include "pipeline.h"
 #include "settings.h"
@@ -21,19 +18,16 @@
 #include "ui.h"
 
 #define TEXT_MAX (256 * 1024)
-#define WORDS_MAX 16384
+#define AREA "transcript"
 
 typedef struct { char *before, *after; int start, end; } replacement;
-typedef struct { int start, end; } span;
 
 static struct {
     eh_ui *ui;
     char *text, *original;
-    span words[WORDS_MAX];
-    int word_count;
-    int first, last, anchor;  // the words picked, or -1
-    bool dragging, editing;
-    char spelling[128], picked_for[128];  // the spelling typed, and what the pick put there
+    int sel_start, sel_end;  // what is selected, without the blanks at its ends; -1 when nothing is
+    int place_start, place_end;  // a selection to give the text area when it is next drawn, or -1
+    char spelling[128];
     char status[400], note[200];
     replacement *undo;
     int undo_count;
@@ -41,20 +35,9 @@ static struct {
     int asking;  // the open question is about closing with a draft
 } C;
 
-static void find_words(void) {
-    C.word_count = 0;
-    for (int i = 0; C.text[i] && C.word_count < WORDS_MAX;) {
-        while (C.text[i] == ' ' || C.text[i] == '\n' || C.text[i] == '\t' || C.text[i] == '\r') i++;
-        if (!C.text[i]) break;
-        int start = i;
-        while (C.text[i] && C.text[i] != ' ' && C.text[i] != '\n' && C.text[i] != '\t' && C.text[i] != '\r') i++;
-        C.words[C.word_count++] = (span){ start, i };
-    }
-}
-
-static bool picked(void) { return C.first >= 0 && C.last >= C.first && C.last < C.word_count; }
-static int pick_start(void) { return C.words[C.first].start; }
-static int pick_end(void) { return C.words[C.last].end; }
+static bool picked(void) { return C.sel_start >= 0 && C.sel_end > C.sel_start; }
+static int pick_start(void) { return C.sel_start; }
+static int pick_end(void) { return C.sel_end; }
 
 static void clear_undo(void) {
     for (int i = 0; i < C.undo_count; i++) SDL_free(C.undo[i].before), SDL_free(C.undo[i].after);
@@ -64,17 +47,16 @@ static void clear_undo(void) {
 }
 
 static void unpick(void) {
-    C.first = C.last = C.anchor = -1;
-    C.spelling[0] = C.picked_for[0] = 0;
+    C.sel_start = C.sel_end = -1;
+    C.spelling[0] = 0;
 }
 
-// The words from `a` to `b` become the pick, and the spelling field is filled with them.
-static void pick(int a, int b) {
-    C.first = SDL_min(a, b), C.last = SDL_max(a, b);
-    int n = SDL_min(pick_end() - pick_start(), (int)sizeof C.spelling - 1);
-    SDL_memcpy(C.spelling, C.text + pick_start(), (size_t)n);
+// The range becomes what is to be replaced, and the spelling field is filled with it.
+static void pick(int start, int end) {
+    C.sel_start = start, C.sel_end = end;
+    int n = SDL_min(end - start, (int)sizeof C.spelling - 1);
+    SDL_memcpy(C.spelling, C.text + start, (size_t)n);
     C.spelling[n] = 0;
-    SDL_strlcpy(C.picked_for, C.spelling, sizeof C.picked_for);
 }
 
 // A spelling typed for the pick that has not been applied.
@@ -116,8 +98,10 @@ static void replace(bool remember) {
         } else {
             SDL_free(before);
         }
-        find_words();
         unpick();
+        // The cursor goes after what was put in.
+        C.place_start = C.place_end = start + (int)add;
+        eh_ui_focus(C.ui, AREA);
         if (remember) SDL_snprintf(C.status, sizeof C.status, "Replaced and remembered “%s”.", spelling);
         else SDL_strlcpy(C.status, "Replaced this occurrence.", sizeof C.status);
     }
@@ -137,13 +121,10 @@ static void undo(void) {
     SDL_strlcpy(C.text, r.before, TEXT_MAX);
     SDL_free(r.before);
     SDL_free(r.after);
-    find_words();
-    unpick();
-    // The words the replacement had taken the place of are the pick again.
-    for (int i = 0; i < C.word_count; i++) {
-        if (C.words[i].start == r.start) C.first = i;
-        if (C.words[i].end == r.end && C.first >= 0) { pick(C.first, i); break; }
-    }
+    // What the replacement had taken the place of is selected again.
+    pick(r.start, r.end);
+    C.place_start = r.start, C.place_end = r.end;
+    eh_ui_focus(C.ui, AREA);
     SDL_strlcpy(C.status, "Replacement undone. Already remembered spellings stay in your dictionary.", sizeof C.status);
 }
 
@@ -174,62 +155,23 @@ static void copy(void) {
     eh_spawn(copy_task, SDL_strdup(C.text));
 }
 
-/* ---------------- the transcript as words ---------------- */
+/* ---------------- what is selected ---------------- */
 
-static float width_of(const char *from, int n) {
-    char *piece = SDL_strndup(from, (size_t)n);
-    float w = gs_ui_text_width(eh_ui_gs(C.ui), piece, 14);
-    SDL_free(piece);
-    return w;
-}
+static bool blank(char c) { return c == ' ' || c == '\n' || c == '\t' || c == '\r'; }
 
-// Draws the transcript in `box`, takes clicks and drags on its words, and returns its height.
-static float words_view(gs_rect box, bool focused) {
-    gs_ui *gs = eh_ui_gs(C.ui);
-    float s = gs_ui_scale(gs), line_h = gs_ui_line_height(gs, 14);
-    gs_wrap *wrap = *C.text ? gs_fontset_wrap(eh_fonts(), 14 * s, C.text, box.w * s) : NULL;
-    int lines = wrap ? wrap->count : 0;
-    float mx = eh_ui_pointer_x(C.ui), my = eh_ui_pointer_y(C.ui);
-    // The word under the pointer.
-    int hover = -1, row = (int)SDL_floorf((my - box.y) / line_h);
-    if (row >= 0 && row < lines && mx >= box.x && mx <= box.x + box.w) {
-        gs_wrap_line ln = wrap->lines[row];
-        for (int i = 0; i < C.word_count && hover < 0; i++) {
-            span w = C.words[i];
-            if (w.start < ln.start || w.start >= ln.end) continue;
-            float x0 = box.x + width_of(C.text + ln.start, w.start - ln.start), x1 = box.x + width_of(C.text + ln.start, SDL_min(w.end, ln.end) - ln.start);
-            if (mx >= x0 - 3 && mx <= x1 + 3) hover = i;
-        }
-    }
-    bool inside = gs_rect_contains(box, mx, my) || C.dragging;
-    if (!C.busy && inside && eh_ui_pointer_down(C.ui)) {
-        if (!C.dragging) {
-            C.dragging = true;
-            C.anchor = hover;
-            if (hover >= 0) pick(hover, hover);
-            else unpick();
-            eh_ui_focus(C.ui, "transcript");
-        } else if (hover >= 0 && C.anchor >= 0) {
-            pick(C.anchor, hover);
-        }
-        eh_ui_again(C.ui, 16);
-    } else {
-        C.dragging = false;
-    }
-    for (int i = 0; i < lines; i++) {
-        gs_wrap_line ln = wrap->lines[i];
-        float y = box.y + (float)i * line_h;
-        if (picked() && pick_start() < ln.end && pick_end() > ln.start) {
-            int from = SDL_max(pick_start(), ln.start), to = SDL_min(pick_end(), ln.end);
-            float x0 = box.x + width_of(C.text + ln.start, from - ln.start), x1 = box.x + width_of(C.text + ln.start, to - ln.start);
-            eh_w_round(C.ui, (gs_rect){ x0 - 2, y + 1, x1 - x0 + 4, line_h - 2 }, 4, gs_rgba(EH_TEXT, focused ? 0.28f : 0.18f));
-        }
-        char *line = SDL_strndup(C.text + ln.start, (size_t)(ln.end - ln.start));
-        gs_ui_text(gs, (gs_rect){ box.x, y, box.w + 40, line_h }, line, 14, gs_rgba(EH_TEXT, 1), -1);
-        SDL_free(line);
-    }
-    if (wrap) gs_wrap_free(wrap);
-    return (float)SDL_max(lines, 1) * line_h;
+// Follows the text area's selection while it has the keyboard: the selection without the blanks at
+// its ends is what will be replaced, and the spelling field starts as a copy of it. A selection
+// given up while a spelling for it is typed and not applied is kept, so a stray click does not
+// throw the spelling away.
+static void capture(void) {
+    int start = 0, end = 0;
+    gs_ui_textarea_selection(eh_ui_gs(C.ui), AREA, &start, &end);
+    while (start < end && blank(C.text[start])) start++;
+    while (end > start && blank(C.text[end - 1])) end--;
+    if (picked() && start == C.sel_start && end == C.sel_end) return;
+    if (end <= start && pending()) return;
+    if (end > start) pick(start, end);
+    else unpick();
 }
 
 /* ---------------- the window ---------------- */
@@ -252,13 +194,13 @@ bool eh_correction_window_open(const char *text, char *error, size_t error_size)
     C.text = SDL_calloc(1, TEXT_MAX);
     SDL_strlcpy(C.text, text ? text : "", TEXT_MAX);
     C.original = SDL_strdup(C.text);
-    find_words();
     unpick();
-    C.dragging = C.editing = C.busy = C.copied = C.close_now = false;
+    C.place_start = C.place_end = 0;
+    C.busy = C.copied = C.close_now = false;
     C.asking = 0;
     SDL_strlcpy(C.note, cleanup ? "Remember spellings to guide future cleanup. No automatic replacements or model retraining." : "Cleanup is off. Remembered spellings take effect when cleanup is enabled.", sizeof C.note);
     SDL_strlcpy(C.status, *C.text ? "" : "No saved transcript yet. Enable History and finish a dictation first.", sizeof C.status);
-    eh_ui_focus(C.ui, "transcript");
+    eh_ui_focus(C.ui, AREA);
     SDL_ShowWindow(eh_ui_window(C.ui));
     gs_window_activate(eh_ui_window(C.ui));  // to the front with the keyboard, which on macOS takes making the app active
     return true;
@@ -317,7 +259,7 @@ int eh_correction_window_frame(void) {
     float x = 28, w = area.w - 56, y = 22;
     eh_w_line(C.ui, (gs_rect){ x, y, w, 26 }, "Correct transcript", 18, gs_rgba(EH_TEXT, 1), -1);
     y += 34;
-    hint(x, &y, w, "Pick a word or phrase, then enter its correct spelling. Your original stays in History.");
+    hint(x, &y, w, "Select a word or phrase, then enter its correct spelling. Your original stays in History.");
 
     // From the bottom up, so the transcript takes the room that is left.
     float bottom = area.h - 20;
@@ -334,46 +276,25 @@ int eh_correction_window_frame(void) {
     gs_rect box = { x, y + 26, w, SDL_max(120, bottom - lower - hint_h - (y + 26) - 10) };
 
     label(x, &y, w, "Transcript");
-    float edit_w = eh_w_button_width(C.ui, C.editing ? "Done editing" : "Edit text");
-    if (eh_w_button(C.ui, (gs_rect){ x + w - edit_w, y - 32, edit_w, 28 }, "edit", C.editing ? "Done editing" : "Edit text", EH_BTN_PLAIN)) {
-        C.editing = !C.editing;
-        find_words();
-        unpick();
-        if (!C.editing) eh_ui_focus(C.ui, "transcript");
+    if (C.place_start >= 0) {
+        gs_ui_textarea_select(gs, AREA, C.place_start, C.place_end);
+        C.place_start = C.place_end = -1;
     }
-    if (C.editing) {
-        // By hand: the replacements made before it can no longer be undone.
-        if (eh_w_textarea(C.ui, box, "transcript-edit", C.text, TEXT_MAX, NULL)) clear_undo(), find_words();
-    } else {
-        gs_ui_fill(gs, box, gs_rgba(EH_FIELD, 1));
-        int arrow = 0;
-        bool shift = false, activated = false, focused = eh_ui_custom_stop(C.ui, "transcript", box, &arrow, &shift, &activated);
-        gs_ui_frame(gs, box, gs_rgba(focused ? EH_TEXT : EH_FIELD_EDGE, 1));
-        // With the keyboard: the arrows move the pick a word at a time, Shift grows it.
-        if (focused && arrow && C.word_count) {
-            if (!picked()) pick(0, 0), C.anchor = 0;
-            else if (shift) {
-                if (C.anchor < 0) C.anchor = C.first;
-                int moving = C.anchor == C.first ? C.last : C.first;
-                pick(C.anchor, SDL_clamp(moving + arrow, 0, C.word_count - 1));
-            } else {
-                int at = SDL_clamp((arrow > 0 ? C.last : C.first) + arrow, 0, C.word_count - 1);
-                pick(at, at);
-                C.anchor = at;
-            }
-        }
-        gs_rect inner = gs_inset(box, 10);
-        float top = eh_scroll_begin(C.ui, box);
-        float h = words_view((gs_rect){ inner.x, top + 10, inner.w, 0 }, focused);
-        eh_scroll_end(C.ui, top + h + 20);
+    if (eh_w_textarea(C.ui, box, AREA, C.text, TEXT_MAX, NULL)) {
+        // Changed by hand: nothing is selected for replacing, and the replacements made before it
+        // can no longer be undone.
+        unpick();
+        clear_undo();
+    } else if (gs_ui_focused(gs, AREA) && !C.busy) {
+        capture();
     }
     y = box.y + box.h + 8;
     char picked_hint[400];
     if (picked()) {
         int n = pick_end() - pick_start();
-        SDL_snprintf(picked_hint, sizeof picked_hint, "Picked: “%.*s%s”. Press Tab to correct its spelling.", SDL_min(n, 120), C.text + pick_start(), n > 120 ? "…" : "");
+        SDL_snprintf(picked_hint, sizeof picked_hint, "Selected: “%.*s%s”. Press Tab to correct its spelling.", SDL_min(n, 120), C.text + pick_start(), n > 120 ? "…" : "");
     } else {
-        SDL_strlcpy(picked_hint, C.editing ? "Change the transcript by hand, then choose Done editing to pick words again." : "Click a word, or drag across a phrase, then press Tab to correct it. The arrow keys pick too; Shift with them picks a phrase.", sizeof picked_hint);
+        SDL_strlcpy(picked_hint, "Select text, then press Tab to correct it. You can also edit the transcript directly.", sizeof picked_hint);
     }
     eh_w_line(C.ui, (gs_rect){ x, y, w, 18 }, picked_hint, 12, gs_rgba(EH_TEXT_DIM, 1), -1);
     y += hint_h;
@@ -381,15 +302,17 @@ int eh_correction_window_frame(void) {
     label(x, &y, w, "Correct spelling");
     eh_w_field(C.ui, (gs_rect){ x, y, w, 36 }, "spelling", C.spelling, 121, NULL, 0);
     // Enter in the field replaces and remembers; Escape there gives up the pick.
-    bool can = picked() && !C.busy && !C.editing;
+    bool can = picked() && !C.busy;
     char *typed = eh_trim(C.spelling);
     can = can && *typed;
     SDL_free(typed);
     if (spelling_focused && gs_ui_key(gs, SDLK_RETURN, 0) && can) replace(true);
     if (spelling_focused && eh_ui_escaped(C.ui) && !eh_ui_asking(C.ui)) {
+        // The cursor goes back to where the selection began.
+        C.place_start = C.place_end = picked() ? C.sel_start : 0;
         unpick();
         SDL_strlcpy(C.status, "Pending replacement cancelled.", sizeof C.status);
-        eh_ui_focus(C.ui, "transcript");
+        eh_ui_focus(C.ui, AREA);
     }
     y += 36 + 12;
     float bx = x;

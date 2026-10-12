@@ -15,8 +15,6 @@ struct eh_ui {
     gs_ui *gs;
     SDL_Texture *icon;
     bool close_asked, inert, dim;
-    float mx, my;  // the pointer, in points
-    bool down;     // its left button
     bool escape;   // Escape was pressed since the last frame
     bool paging;   // between eh_scroll_begin and eh_scroll_end
     bool was_capturing;  // a hotkey field was waiting for keys when the frame began: Escape was its
@@ -86,9 +84,6 @@ gs_ui *eh_ui_gs(eh_ui *ui) { return ui->gs; }
 bool eh_ui_capturing(eh_ui *ui) { return gs_ui_capturing(ui->gs); }
 bool eh_ui_asking(eh_ui *ui) { return ui->asking; }
 bool eh_ui_escaped(eh_ui *ui) { return ui->escape; }
-float eh_ui_pointer_x(eh_ui *ui) { return ui->mx; }
-float eh_ui_pointer_y(eh_ui *ui) { return ui->my; }
-bool eh_ui_pointer_down(eh_ui *ui) { return ui->down; }
 
 bool eh_ui_close_asked(eh_ui *ui) {
     bool asked = ui->close_asked;
@@ -104,15 +99,8 @@ static bool mine(eh_ui *ui, const SDL_Event *e) {
         if (e->window.windowID != id) return false;
         ui->close_asked = true;
         return true;
-    case SDL_EVENT_MOUSE_MOTION:
-        if (e->motion.windowID != id) return false;
-        ui->mx = e->motion.x, ui->my = e->motion.y;
-        return true;
-    case SDL_EVENT_MOUSE_BUTTON_DOWN: case SDL_EVENT_MOUSE_BUTTON_UP:
-        if (e->button.windowID != id) return false;
-        ui->mx = e->button.x, ui->my = e->button.y;
-        if (e->button.button == SDL_BUTTON_LEFT) ui->down = e->type == SDL_EVENT_MOUSE_BUTTON_DOWN;
-        return true;
+    case SDL_EVENT_MOUSE_MOTION: return e->motion.windowID == id;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN: case SDL_EVENT_MOUSE_BUTTON_UP: return e->button.windowID == id;
     case SDL_EVENT_MOUSE_WHEEL: return e->wheel.windowID == id;
     case SDL_EVENT_KEY_DOWN:
         if (e->key.windowID != id) return false;
@@ -286,24 +274,6 @@ bool eh_w_stops(eh_ui *ui, gs_rect r, const char *id, int *value, int count) {
 bool eh_w_hotkey(eh_ui *ui, gs_rect r, const char *id, const char *shown, const char *placeholder, char *out, size_t size) {
     note(ui, id, r);
     return gs_ui_hotkey(ui->gs, r, id, shown, placeholder, out, size);
-}
-
-bool eh_ui_custom_stop(eh_ui *ui, const char *id, gs_rect r, int *arrow, bool *shift, bool *activated) {
-    note(ui, id, r);
-    bool hit = gs_ui_activated(ui->gs, r, id), focused = gs_ui_focused(ui->gs, id) && !ui->inert && !ui->asking;
-    int a = 0;
-    bool s = false;
-    if (focused) {
-        // Shift is asked for first: a plain press matches with or without it.
-        if (gs_ui_key(ui->gs, SDLK_RIGHT, SDL_KMOD_SHIFT) || gs_ui_key(ui->gs, SDLK_DOWN, SDL_KMOD_SHIFT)) a = 1, s = true;
-        else if (gs_ui_key(ui->gs, SDLK_LEFT, SDL_KMOD_SHIFT) || gs_ui_key(ui->gs, SDLK_UP, SDL_KMOD_SHIFT)) a = -1, s = true;
-        else if (gs_ui_key(ui->gs, SDLK_RIGHT, 0) || gs_ui_key(ui->gs, SDLK_DOWN, 0)) a = 1;
-        else if (gs_ui_key(ui->gs, SDLK_LEFT, 0) || gs_ui_key(ui->gs, SDLK_UP, 0)) a = -1;
-    }
-    if (arrow) *arrow = a;
-    if (shift) *shift = s;
-    if (activated) *activated = hit;
-    return focused;
 }
 
 /* ---------------- the question ---------------- */
