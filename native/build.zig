@@ -21,8 +21,11 @@ pub fn build(b: *std.Build) void {
     mod.addCMacro("EARHEART_VERSION", "\"" ++ zon.version ++ "\"");
     mod.linkLibrary(gesso);
     const exe = b.addExecutable(.{ .name = "earheart", .root_module = mod });
-    // A windowed program on Windows, so starting it from the desktop opens no console.
-    if (target.result.os.tag == .windows) exe.subsystem = .windows;
+    // A windowed program on Windows, so starting it from the desktop opens no console, with its icon in the file.
+    if (target.result.os.tag == .windows) {
+        exe.subsystem = .windows;
+        mod.addWin32ResourceFile(.{ .file = b.path("src/earheart.rc") });
+    }
     b.installArtifact(exe);
 
     // The engines fetched for this target go beside the executable. -Dengines=false builds without

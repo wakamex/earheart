@@ -1,0 +1,4 @@
+// The program's icon on Windows: what Explorer, the taskbar and a pinned shortcut show.
+// earheart.ico is assets/icon.png at 256, 64, 48, 32, 24 and 16 pixels:
+//   magick assets/icon.png -define icon:auto-resize=256,64,48,32,24,16 native/src/earheart.ico
+1 ICON "earheart.ico"
