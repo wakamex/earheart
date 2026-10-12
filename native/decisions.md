@@ -211,7 +211,7 @@ Every surface of the Electron build at v0.39.0 and what the native build does wi
 | Electron build | Native build |
 |---|---|
 | General: record, pause, discard and correct hotkeys with capture, reset and clear | kept |
-| General: microphone picker, output mode, start on login | kept; start on login comes with M7's early pieces |
+| General: microphone picker, output mode, start on login | kept |
 | General: "Fix auto-paste permission" on macOS | kept, for Accessibility only: native paste needs no Automation permission |
 | Live transcript on or off | kept |
 | Speech-to-text: on this computer or OpenAI-compatible; model picker with download, progress and removal | kept |
@@ -460,4 +460,19 @@ Decisions:
 Found while testing, and fixed: the events that wake the main thread carried no type, so the tray menu was never rebuilt after start-up; Xlib's default handler ended the process on an error for a window closed a moment before; a quit signal was not noticed on macOS until some other event arrived, 20 seconds with the settings window open.
 
 Not in M5, by the plan: start on login, the keychain, notifications, the updater and its settings section. Open from M2: a noise suppressor to close the 2.6 point gap in noisy rooms.
+
+### The three pieces before delivery: notifications, key store, start on login (2026-10-12)
+
+Start on login is a switch in the settings kept as `startOnBoot`, as in the Electron build, and `src/autostart.c` makes it true of the system: an entry in `~/.config/autostart` on Linux, a value under the user's Run key on Windows, a launch agent in `~/Library/LaunchAgents` on macOS, each starting the program hidden. The entry names the program where it is, so it is written again at every start while the switch is on. It is in the app and not in gesso: it uses no gesso call, and no second gesso app has needed it yet.
+
+Each of the three was run against the real thing on each system, in a desktop session:
+
+| | Linux (Ubuntu 24.04 container: Openbox, dunst, GNOME Keyring, dex) | macOS 26 (rented Mac, signed bundle) | Windows 11 (desktop session of a PC) |
+|---|---|---|---|
+| Notification on a start that is not hidden | dunst displayed "Earheart is ready" with the icon; its action opened the settings window | in the Notification Centre after the system's one-time question; a click opened the settings in front | a toast with the icon and the hotkey |
+| API key | an item in GNOME Keyring that `secret-tool` reads back; no key file, none in the settings file | an item in the login Keychain; no key file, none in the settings file | a file of 246 bytes in which the key cannot be read (encrypted for the account); none in the settings file; read back on the next run |
+| Start on login | the entry passes `desktop-file-validate`; dex, which runs autostart entries, started the app hidden with no window | the agent passes `plutil -lint`; loaded into the desktop session with `launchctl bootstrap`, the app ran hidden | the Run value holds the quoted path and `--hidden`; run as written, it started the app with no window |
+| Window tests in that session | settings, wizard and correction editor pass (also in CI) | pass in CI | settings (127 checks) and wizard (59) pass on the PC; all three pass in CI |
+
+Not done: logging out and in again on any of them, which is what finally reads the entry; the step that a login performs was run by hand on each. A fresh GNOME Keyring with no default keyring asks the user to create one at the first save, and the save waits for the answer.
 
