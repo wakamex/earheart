@@ -92,6 +92,35 @@ fi
 kill $app
 wait $app 2>/dev/null
 [ "$(grep -c '"text"' "$EARHEART_DATA/history.json")" = 2 ] || fail "history does not hold both dictations"
+# Always-on listening: with the setting on and no key pressed, the clip's first stretch of speech
+# lands in the focused window by itself, without the overlay, and `--listen` turns the mode off.
+cat > "$EARHEART_DATA/settings.json" <<JSON
+{"alwaysOn":true,"stt":{"engine":"builtin","builtin":{"model":"${EARHEART_STT_MODEL:-parakeet-tdt-0.6b-v3-int8}"}},
+ "cleanup":{"enabled":false,"engine":"builtin"},"output":{"mode":"paste","restoreClipboard":true}}
+JSON
+if [ -z "${EARHEART_E2E_NO_PASTE:-}" ]; then
+    ${EARHEART_E2E_WRAP:-} "$bin/paste-target" "the user's own clipboard" 120 > "$EARHEART_DATA/target.out" 2>&1 &
+    target=$!
+    for i in $(seq 100); do grep -q ready "$EARHEART_DATA/target.out" && break; sleep 0.1; done
+    command -v xdotool >/dev/null && xdotool search --name paste-target windowfocus 2>/dev/null
+    "$bin/earheart" --hidden 2>> "$EARHEART_DATA/stderr.log" &
+    app=$!
+    wait $target || fail "always-on: nothing was pasted"
+    pasted=$(sed -n 's/^pasted: //p' "$EARHEART_DATA/target.out" | tr -d '\r')
+    after=$(sed -n 's/^clipboard: //p' "$EARHEART_DATA/target.out" | tr -d '\r')
+    [ "$after" = "the user's own clipboard" ] || fail "always-on: the clipboard was not put back (it holds \"$after\")"
+    echo "always-on: delivered \"$pasted\""
+    case "$pasted" in *"communication channels"*) ;; *) fail "always-on: that is not the start of the clip" ;; esac
+    grep -q "always-on: .* s of speech" "$log" || fail "always-on: the log names no stretch of speech"
+    if [ "$(uname -s)" = Linux ]; then
+        [ -z "$(xdotool search --onlyvisible --name '^Earheart$')" ] || fail "always-on: the overlay was shown"
+    fi
+    "$bin/earheart" --listen || fail "always-on: --listen was not taken"
+    for i in $(seq 50); do grep -q "always-on: stopped listening" "$log" && break; sleep 0.1; done
+    grep -q "always-on: stopped listening" "$log" || fail "always-on: --listen did not stop the listening"
+    kill $app
+    wait $app 2>/dev/null
+fi
 # The speech engine dying at the stop: the words the live preview had decoded are still delivered,
 # marked incomplete, with a notice. Three times the clip, so a chunk has committed by the stop.
 long=$EARHEART_DATA/long.wav

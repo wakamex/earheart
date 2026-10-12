@@ -1,4 +1,5 @@
 #include "app.h"
+#include "listen.h"
 #include <SDL3/SDL.h>
 #include "catalog.h"
 #include "engines.h"
@@ -57,7 +58,10 @@ static void on_overlay_show(bool visible) {
 
 static void on_notify(const char *title, const char *body, bool opens_settings) { tell("notify", title, body, opens_settings, NULL); }
 static void on_history_changed(void) { tell("history", NULL, NULL, 0, NULL); }
-static void on_state_changed(eh_state state) { tell("state", state == EH_IDLE ? "idle" : state == EH_RECORDING ? "recording" : "processing", NULL, 0, NULL); }
+static void on_state_changed(eh_state state) {
+    eh_listen_state(state);
+    tell("state", state == EH_IDLE ? "idle" : state == EH_RECORDING ? "recording" : "processing", NULL, 0, NULL);
+}
 
 /* ---------------- the recorder, as the pipeline drives it ---------------- */
 
@@ -93,9 +97,17 @@ static void on_live(unsigned sid, const char *notice) {
 
 static void on_paused(unsigned sid, bool paused) { set_status(paused ? "paused" : "recording", NULL); }
 
+// Always-on listening follows its setting, on the microphone the settings name.
+static void apply_always_on(void) {
+    char error[256];
+    if (!eh_setting_bool("alwaysOn")) { eh_listen_stop(); return; }
+    if (!eh_listen_start(eh_setting_str("audio.deviceId"), eh_setting_num("audio.maxRecordingSeconds"), error, sizeof error)) on_notify("Earheart: always-on listening could not start", error, true);
+}
+
 static void settings_changed(void *user, const gs_jval *previous, const gs_jval *current) {
     eh_models_set_custom(gs_jval_get(current, "customModels"));
     eh_pipeline_settings_changed();
+    apply_always_on();
 }
 
 void eh_app_init(const char *data_dir, eh_observer *observer, eh_deliver_fn *deliver_fn) {
@@ -131,5 +143,6 @@ void eh_app_init(const char *data_dir, eh_observer *observer, eh_deliver_fn *del
     };
     SDL_snprintf(path, sizeof path, "%s" EH_SEP "stt-rtf.json", data_dir);
     eh_pipeline_init(&pipeline, path);
+    apply_always_on();
     eh_unlock();
 }

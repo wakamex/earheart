@@ -7,7 +7,7 @@ const std = @import("std");
 const zon = @import("build.zig.zon");
 
 const flags: []const []const u8 = &.{ "-std=c11", "-ffp-contract=off", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-missing-field-initializers" };
-const sources: []const []const u8 = &.{ "engine.c", "worker.c", "paths.c", "cores.c", "files.c", "settings.c", "loop.c", "engines.c", "remote.c", "preview.c", "pipeline.c", "history.c", "recorder.c", "app.c", "jw.c", "wav.c", "audio.c", "chunked.c", "text.c", "stt.c", "cleanup.c", "models.c", "download.c", "catalog.c", "fonts.c", "overlay.c", "ui.c", "hotkeys.c", "model_jobs.c", "commit.c", "hf.c", "autostart.c" };
+const sources: []const []const u8 = &.{ "engine.c", "worker.c", "paths.c", "cores.c", "files.c", "settings.c", "loop.c", "engines.c", "remote.c", "preview.c", "pipeline.c", "history.c", "recorder.c", "app.c", "jw.c", "wav.c", "audio.c", "chunked.c", "text.c", "stt.c", "cleanup.c", "models.c", "download.c", "catalog.c", "fonts.c", "overlay.c", "ui.c", "hotkeys.c", "model_jobs.c", "commit.c", "hf.c", "autostart.c", "listen.c" };
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) void {
 
     const tests = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     tests.addCSourceFiles(.{ .root = b.path("src"), .files = sources, .flags = flags });
-    tests.addCSourceFiles(.{ .root = b.path("tests"), .files = &.{ "main.c", "audio.c", "chunked.c", "text.c", "settings.c", "overlay.c", "hotkeys.c", "commit.c", "hf.c" }, .flags = flags });
+    tests.addCSourceFiles(.{ .root = b.path("tests"), .files = &.{ "main.c", "audio.c", "chunked.c", "text.c", "settings.c", "overlay.c", "hotkeys.c", "commit.c", "hf.c", "listen.c" }, .flags = flags });
     tests.addIncludePath(b.path("src"));
     tests.addIncludePath(b.path("vendor/include"));
     tests.linkLibrary(gesso);

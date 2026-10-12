@@ -12,3 +12,4 @@ void test_overlay(void);                 // tests/overlay.c
 void test_hotkeys(const char *vectors);  // tests/hotkeys.c
 void test_vocabulary(const char *vectors);  // tests/commit.c
 void test_hf(const char *vectors);          // tests/hf.c
+void test_listen(void);                  // tests/listen.c

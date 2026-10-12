@@ -54,6 +54,11 @@ void eh_pipeline_pause_toggle(void);
 void eh_pipeline_discard(void);
 void eh_pipeline_cancel(void);
 void eh_pipeline_settings_changed(void);
+// For the always-on listener (listen.c): the models loaded ahead of a stretch of speech, and the
+// stretch itself as a dictation without the overlay. The second is false while another dictation
+// is in progress, and the audio then stays the caller's; otherwise it is owned by the call.
+void eh_pipeline_warm(void);
+bool eh_pipeline_utterance(uint8_t *wav, size_t len);
 
 // From the recorder. The audio is owned by the call.
 void eh_pipeline_captured(unsigned sid, uint8_t *wav, size_t len);

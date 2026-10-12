@@ -4,7 +4,7 @@
 //
 //   earheart                       start, or bring up the running instance
 //   earheart --hidden              start in the tray without the wizard
-//   earheart --toggle | --pause | --discard | --correct-last
+//   earheart --toggle | --pause | --discard | --correct-last | --listen
 //                                  the same as the hotkey, sent to the running instance
 //   earheart --smoke-test          start, then quit: for CI
 //   earheart --smoke-test --engine-check   also check that both engines load
@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include "app.h"
 #include "autostart.h"
+#include "listen.h"
 #include "commit.h"
 #include "deliver.h"
 #include "gs_desk.h"
@@ -70,7 +71,7 @@ static void log_line(void *user, int category, SDL_LogPriority priority, const c
 
 /* ---------------- actions ---------------- */
 
-typedef enum { ACT_TOGGLE, ACT_PAUSE, ACT_DISCARD, ACT_CANCEL, ACT_COPY_LAST, ACT_MODE_PASTE, ACT_MODE_PASTE_COPY, ACT_MODE_CLIPBOARD, ACT_HOTKEYS, ACT_ARM, ACT_DISARM } action;
+typedef enum { ACT_TOGGLE, ACT_PAUSE, ACT_DISCARD, ACT_CANCEL, ACT_COPY_LAST, ACT_MODE_PASTE, ACT_MODE_PASTE_COPY, ACT_MODE_CLIPBOARD, ACT_HOTKEYS, ACT_ARM, ACT_DISARM, ACT_LISTEN } action;
 
 static void apply_hotkeys(void);
 static void settings_click(void *user, SDL_TrayEntry *entry);
@@ -102,6 +103,14 @@ static void act(void *user) {
         gs_jval_set_path(next, "output.mode", gs_jval_str(mode));
         gs_jval_set_path(next, "output.restoreClipboard", gs_jval_bool(true));
         if (!eh_settings_save(next, error, sizeof error)) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "could not save the output mode: %s", error);
+        break;
+    }
+    case ACT_LISTEN: {
+        // Always-on listening is a setting, so it is still on after a restart, and the tray's mark
+        // and the listener both follow the file.
+        gs_jval *next = gs_jval_clone(eh_settings());
+        gs_jval_set(next, "alwaysOn", gs_jval_bool(!eh_setting_bool("alwaysOn")));
+        if (!eh_settings_save(next, error, sizeof error)) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "could not save always-on listening: %s", error);
         break;
     }
     case ACT_HOTKEYS: apply_hotkeys(); break;
@@ -172,7 +181,7 @@ static void instance_args(int argc, char **argv) {
     for (int i = 0; i < argc; i++) {
         if (!SDL_strcmp(argv[i], "--settings")) continue;
         if (!SDL_strcmp(argv[i], "--correct-last")) { wake(4); asked = true; continue; }
-        action a = !SDL_strcmp(argv[i], "--toggle") ? ACT_TOGGLE : !SDL_strcmp(argv[i], "--pause") ? ACT_PAUSE : !SDL_strcmp(argv[i], "--discard") ? ACT_DISCARD : ACT_HOTKEYS;
+        action a = !SDL_strcmp(argv[i], "--toggle") ? ACT_TOGGLE : !SDL_strcmp(argv[i], "--pause") ? ACT_PAUSE : !SDL_strcmp(argv[i], "--discard") ? ACT_DISCARD : !SDL_strcmp(argv[i], "--listen") ? ACT_LISTEN : ACT_HOTKEYS;
         if (a == ACT_HOTKEYS) continue;
         asked = true;
         if (SDL_GetAtomicInt(&R.ready)) { spawn_action(a); continue; }
@@ -289,6 +298,7 @@ static void refresh_tray(void) {
     eh_lock();
     eh_state state = eh_pipeline_state();
     const char *mode = eh_setting_str("output.mode");
+    bool listening = eh_listen_on();
     // Paste without restoring the clipboard is what "paste and keep" means.
     bool keep = !SDL_strcmp(mode, "paste-copy") || (!SDL_strcmp(mode, "paste") && !eh_setting_bool("output.restoreClipboard"));
     bool paste = !SDL_strcmp(mode, "paste") && !keep, has_last = gs_jval_count(eh_history_list()) > 0;
@@ -302,6 +312,7 @@ static void refresh_tray(void) {
     add(state == EH_RECORDING ? "Stop & transcribe" : state == EH_PROCESSING ? "Processing…" : "Start dictation",
         SDL_TRAYENTRY_BUTTON | (state == EH_PROCESSING ? SDL_TRAYENTRY_DISABLED : 0), menu_click, ACT_TOGGLE);
     if (state != EH_IDLE) add("Cancel", SDL_TRAYENTRY_BUTTON, menu_click, ACT_CANCEL);
+    add("Always listening", SDL_TRAYENTRY_CHECKBOX | (listening ? SDL_TRAYENTRY_CHECKED : 0), menu_click, ACT_LISTEN);
     add(NULL, 0, NULL, 0);
     add("Paste into active app", SDL_TRAYENTRY_CHECKBOX | (paste ? SDL_TRAYENTRY_CHECKED : 0), menu_click, ACT_MODE_PASTE);
     add("Paste and keep on clipboard", SDL_TRAYENTRY_CHECKBOX | (keep ? SDL_TRAYENTRY_CHECKED : 0), menu_click, ACT_MODE_PASTE_COPY);
@@ -314,8 +325,9 @@ static void refresh_tray(void) {
     add(NULL, 0, NULL, 0);
     SDL_TrayEntry *quit = SDL_InsertTrayEntryAt(R.menu, -1, "Quit Earheart", SDL_TRAYENTRY_BUTTON);
     if (quit) SDL_SetTrayEntryCallback(quit, quit_click, NULL);
-    SDL_SetTrayIcon(R.tray, state == EH_RECORDING ? R.icon_recording : R.icon);
-    SDL_SetTrayTooltip(R.tray, state == EH_RECORDING ? "Earheart — recording" : state == EH_PROCESSING ? "Earheart — processing" : "Earheart — ready");
+    // The recording icon whenever the microphone is open, which with always-on listening is always.
+    SDL_SetTrayIcon(R.tray, state == EH_RECORDING || listening ? R.icon_recording : R.icon);
+    SDL_SetTrayTooltip(R.tray, state == EH_RECORDING ? "Earheart — recording" : state == EH_PROCESSING ? "Earheart — processing" : listening ? "Earheart — listening" : "Earheart — ready");
 }
 
 static SDL_Surface *icon_surface(const unsigned char *png, int len) {
@@ -387,7 +399,7 @@ int eh_run(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         if (!SDL_strcmp(argv[i], "--smoke-test")) smoke = true;
         else if (!SDL_strcmp(argv[i], "--engine-check")) check = true;
-        else if (!SDL_strcmp(argv[i], "--toggle") || !SDL_strcmp(argv[i], "--pause") || !SDL_strcmp(argv[i], "--discard") || !SDL_strcmp(argv[i], "--correct-last")) forwardable = true;
+        else if (!SDL_strcmp(argv[i], "--toggle") || !SDL_strcmp(argv[i], "--pause") || !SDL_strcmp(argv[i], "--discard") || !SDL_strcmp(argv[i], "--correct-last") || !SDL_strcmp(argv[i], "--listen")) forwardable = true;
         else if (!SDL_strcmp(argv[i], "--settings")) open_settings = true;
         else if (SDL_strcmp(argv[i], "--hidden")) { fprintf(stderr, "earheart: unknown option %s\n", argv[i]); return 2; }
     }
@@ -415,11 +427,12 @@ int eh_run(int argc, char **argv) {
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) { SDL_Log("could not start: %s", SDL_GetError()); return 1; }
     R.refresh_event = SDL_RegisterEvents(1);
 
+    // Before the app starts, since always-on listening opens the microphone as it does.
+    if (SDL_getenv("EARHEART_FAKE_MIC")) eh_recorder_fake_microphone(SDL_getenv("EARHEART_FAKE_MIC"), 1);
     eh_app_init(data, observer, eh_deliver);
     eh_lock();
     eh_settings_on_changed(settings_changed, NULL);
     // A WAV file in place of the microphone, for the end-to-end tests.
-    if (SDL_getenv("EARHEART_FAKE_MIC")) eh_recorder_fake_microphone(SDL_getenv("EARHEART_FAKE_MIC"), 1);
     char error[256];
     static const eh_hotkey_backend desktop = { grab, ungrab };
     eh_hotkeys_backend(&desktop);

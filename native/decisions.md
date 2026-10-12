@@ -481,3 +481,18 @@ Each of the three was run against the real thing on each system, in a desktop se
 
 Not done: logging out and in again on any of them, which is what finally reads the entry; the step that a login performs was run by hand on each. A fresh GNOME Keyring with no default keyring asks the user to create one at the first save, and the save waits for the answer.
 
+### Always-on listening, the native build's own (2026-10-12)
+
+A mode beyond parity with v0.39.0, asked for by Mihai: the microphone stays open, speech is found by a voice detector, and each stretch of speech is delivered to the focused window without a hotkey. `tests/e2e.sh` runs it wherever that test can paste: with `alwaysOn` set and a FLEURS clip as the microphone, the clip's first stretch ("However, due to the slow communication channels, ") arrives in a focused window with the clipboard put back, no overlay is on screen (Linux), and `--listen` stops the listening. `zig build test` checks the turn-taking rule by itself.
+
+Decisions:
+
+- The detector is gesso's `gs_voice` with `GS_VOICE_SPEECH` alone (gesso pinned at `52aef10`): WebRTC's recurrent detector with RNNoise's weights, one speech probability per 10 ms. The audio that is transcribed is the microphone's own, unprocessed, as in a dictation by hotkey.
+- Turn-taking is in the app (`src/listen.c`), as gesso's rule for additions leaves it: speech starts after 50 ms above 0.5 and stops after 700 ms below it. A stretch keeps 400 ms from before it was noticed and 250 ms after its last speech, and one with less than 250 ms of speech is dropped as a click or a cough. Speech without a pause is cut at the settings' maximum dictation length.
+- A stretch is a dictation without a recording phase (`eh_pipeline_utterance`): the same transcription, cleanup, history and delivery, with a space added after the text so the next stretch does not run into it. Stretches that arrive while one is being transcribed wait, up to eight, oldest first. The models are warmed when speech starts.
+- No overlay in this mode. The tray's recording icon and its "listening" tooltip say the microphone is open.
+- A dictation by hotkey holds the listener off while it records, so the words are not delivered twice.
+- The setting is `alwaysOn` at the top level of `settings.json`, written only when the mode is switched, so the defaults and the settings vectors against the Electron build are unchanged. It is switched from the tray menu and by `earheart --listen`; the settings window has no control for it yet.
+- The microphone is opened through `eh_mic` (in `src/recorder.c`), which the recorder now reads through as well, so the saved device and the file that stands in for it in tests are chosen in one place.
+
+Known limits: each stretch is transcribed by itself, so a sentence split by a pause is punctuated and capitalised as two; whatever the loudspeakers play is heard as speech, since the build has no echo canceller (gesso has one behind `-Decho`, not used here); and the stop delay and threshold are fixed.

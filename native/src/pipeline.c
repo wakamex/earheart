@@ -320,6 +320,7 @@ typedef struct {
     size_t len;
     eh_preview_snapshot assembly;
     bool has_assembly;
+    bool spaced;  // one utterance of several: a space follows it, so the next does not run into it
 } dictation;
 
 static void process_task(void *user) {
@@ -367,6 +368,11 @@ static void process_task(void *user) {
     }
     P.deps.status("delivering", NULL);
     eh_delivery result = { 0 };
+    if (d->spaced) {
+        size_t n = SDL_strlen(text);
+        text = SDL_realloc(text, n + 2);
+        SDL_memcpy(text + n, " ", 2);
+    }
     if (!P.deps.deliver(text, gs_jval_get(cfg, "output"), signal, &result, error, sizeof error)) { failed = true; goto done; }
     // The words are on the clipboard or pasted; nothing after this may say they were lost.
     delivered = true;
@@ -484,8 +490,47 @@ static void warm_stt(void *user) {
     SDL_free(w);
 }
 
-static void start_recording(void) {
+// The models are warmed as speech begins, so their load time hides under the time the user spends
+// speaking. With live preview on this also keeps the first partials from all being dropped while
+// the model loads. Priming prefills the static start of the cleanup prompt.
+void eh_pipeline_warm(void) {
     const gs_jval *cfg = eh_settings(), *stt = gs_jval_get(cfg, "stt"), *cleanup = gs_jval_get(cfg, "cleanup");
+    if (!SDL_strcmp(gs_jval_string(gs_jval_get(stt, "engine"), ""), "builtin")) {
+        warm *w = SDL_calloc(1, sizeof *w);
+        SDL_strlcpy(w->model, gs_jval_string(gs_jval_path(stt, "builtin.model"), ""), sizeof w->model);
+        eh_spawn(warm_stt, w);
+    }
+    if (gs_jval_boolean(gs_jval_get(cleanup, "enabled"), false) && !SDL_strcmp(gs_jval_string(gs_jval_get(cleanup, "engine"), ""), "builtin")) eh_prime_cleanup(cleanup, "");
+}
+
+// A stretch of speech the always-on listener cut out: a dictation without a recording phase and
+// without the overlay, since the text arriving is what the user sees. False while another
+// dictation is in progress, and the audio stays the caller's.
+bool eh_pipeline_utterance(uint8_t *wav, size_t len) {
+    if (P.state != EH_IDLE) return false;
+    eh_stt_readiness ready = eh_stt_ready(gs_jval_get(eh_settings(), "stt"));
+    if (!ready.ok) {
+        SDL_Log("utterance dropped: speech model %s is %s", ready.model_id, ready.unknown ? "unknown" : "missing");
+        SDL_free(wav);
+        return true;
+    }
+    dictation *d = SDL_calloc(1, sizeof *d);
+    d->sid = ++P.session;
+    d->cfg = gs_jval_clone(eh_settings());
+    d->wav = wav;
+    d->len = len;
+    d->spaced = true;
+    set_state(EH_PROCESSING);
+    eh_signal_unref(P.signal);
+    P.signal = eh_signal_new();
+    d->signal = eh_signal_ref(P.signal);
+    P.deps.status("transcribing", NULL);
+    eh_spawn(process_task, d);
+    return true;
+}
+
+static void start_recording(void) {
+    const gs_jval *cfg = eh_settings(), *stt = gs_jval_get(cfg, "stt");
     // A built-in model that is not on disk cannot transcribe this dictation: said now, before the
     // microphone opens, and not after the user has spoken. Asked on every press, so finishing the
     // download or switching engines works at once.
@@ -502,15 +547,7 @@ static void start_recording(void) {
     set_state(EH_RECORDING);
     bool builtin = !SDL_strcmp(gs_jval_string(gs_jval_get(stt, "engine"), ""), "builtin");
     bool live_on = builtin && gs_jval_boolean(gs_jval_path(stt, "livePreview.enabled"), false);
-    // The models are warmed as recording begins, so their load time hides under the time the user
-    // spends speaking. With live preview on this also keeps the first partials from all being
-    // dropped while the model loads. Priming prefills the static start of the cleanup prompt.
-    if (builtin) {
-        warm *w = SDL_calloc(1, sizeof *w);
-        SDL_strlcpy(w->model, gs_jval_string(gs_jval_path(stt, "builtin.model"), ""), sizeof w->model);
-        eh_spawn(warm_stt, w);
-    }
-    if (gs_jval_boolean(gs_jval_get(cleanup, "enabled"), false) && !SDL_strcmp(gs_jval_string(gs_jval_get(cleanup, "engine"), ""), "builtin")) eh_prime_cleanup(cleanup, "");
+    eh_pipeline_warm();
     P.deps.overlay_show(true);
     // Chunked partial decoding runs whenever speech is built in, since the committed chunks become
     // the final transcript's prefix; `display` also paints the live transcript and is the user's

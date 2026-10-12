@@ -84,6 +84,16 @@ How each figure was taken, with the scripts, is in [decisions.md](decisions.md) 
 
 The full list, feature by feature, is the parity list in [decisions.md](decisions.md).
 
+## Always-on listening
+
+The native build has one mode the Electron build does not: with "Always listening" ticked in the tray menu (or `earheart --listen`), the microphone stays open and no hotkey is needed. A voice detector, gesso's port of the one in [WebRTC](https://webrtc.org/), marks where speech starts and stops. Each stretch of speech is transcribed, cleaned up as the settings say, and pasted into whatever window has the keyboard, followed by a space; between stretches nothing is recorded or transcribed.
+
+- A stretch ends after 0.7 seconds without speech, so a sentence with a long pause in it arrives in two pieces, each punctuated as a sentence of its own.
+- The overlay stays away in this mode, since the text arriving is the feedback. The tray shows the recording icon for as long as the microphone is open.
+- The record hotkey still works. While it records, the listener stands aside.
+- Anything the microphone hears as speech is typed, including a video or a call playing through loudspeakers. There is no echo cancellation in this build.
+- The mode is off by default and is remembered in `settings.json` as `alwaysOn`, a key the Electron build leaves alone.
+
 ## Side by side with the Electron build
 
 Each row shows one screen in the same state in both builds: the Electron build on the left, the native build on the right. Both were drawn on the same Linux machine into a virtual display ([Xvfb](https://www.x.org/releases/current/doc/man/man1/Xvfb.1.xhtml)) at the same size in pixels, so neither has a window frame. The Electron images come from `scripts/screenshots.js` and the native ones from `earheart screenshots DIR`, which fills each window with the same sample content.

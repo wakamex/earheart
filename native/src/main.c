@@ -1,5 +1,5 @@
 // Earheart: hotkey-driven voice dictation, fully local.
-//   earheart [--hidden | --toggle | --pause | --discard | --smoke-test [--engine-check]]
+//   earheart [--hidden | --toggle | --pause | --discard | --listen | --smoke-test [--engine-check]]
 //                                             the app, in the tray (run.c)
 //   earheart transcribe [--models DIR] [--model ID] [--json] [--list FILE] FILE.wav...
 //                                             print each file's transcript; --list names a file of
@@ -155,7 +155,7 @@ int eh_cmd_screenshots(int argc, char **argv);
 int eh_run(int argc, char **argv);          // run.c
 
 static int usage(void) {
-    fprintf(stderr, "usage: earheart [--hidden | --toggle | --pause | --discard]\n"
+    fprintf(stderr, "usage: earheart [--hidden | --toggle | --pause | --discard | --listen]\n"
                     "       earheart transcribe [--models DIR] [--model ID] [--json] [--chunked] [--list FILE] FILE.wav...\n"
                     "       earheart clean [--models DIR] [--model ID] [--cpu] [--system FILE] [--temperature T] [--tokens] TEXT\n"
                     "       earheart clean [--models DIR] [--model ID] [--cpu] --batch < requests.jsonl\n");

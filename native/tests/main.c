@@ -182,7 +182,7 @@ int main(int argc, char **argv) {
     if (argc >= 3 && !strcmp(argv[1], "--engine")) return eh_worker_main(argv[2]);
     setvbuf(stdout, NULL, _IOLBF, 0);
     SDL_SetLogPriorities(SDL_LOG_PRIORITY_CRITICAL);  // the failures the tests provoke are logged by design
-    const struct { const char *name; void (*fn)(void); } tests[] = { { "wav", test_wav }, { "jw", test_jw }, { "turn", test_turn }, { "overlay", test_overlay } };
+    const struct { const char *name; void (*fn)(void); } tests[] = { { "wav", test_wav }, { "jw", test_jw }, { "turn", test_turn }, { "overlay", test_overlay }, { "listen", test_listen } };
     for (size_t i = 0; i < SDL_arraysize(tests); i++) {
         int before = failures;
         tests[i].fn();
