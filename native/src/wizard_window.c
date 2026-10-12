@@ -40,12 +40,7 @@ static struct {
     int outcome;  // set by the save: 1 saved, 2 the hotkey was refused
 } Z;
 
-static int cleanup_models(const eh_model **out, int max) {
-    int n = 0;
-    for (int i = 0; i < eh_catalog_count && n < max; i++)
-        if (eh_catalog[i].kind == EH_MODEL_CLEANUP) out[n++] = &eh_catalog[i];
-    return n;
-}
+static int cleanup_models(const eh_model **out, int max) { return eh_models_list(EH_MODEL_CLEANUP, out, max); }
 
 static const eh_model *cleanup_model(void) {
     const eh_model *list[32];

@@ -283,6 +283,17 @@ int eh_cmd_settings_smoke(int argc, char **argv) {
     CHECK(eh_settings_window_text("stt-fetch")[0] && SDL_strcmp(eh_settings_window_text("stt-fetch"), "Fetching…"));
     CHECK(click("stt-engine-builtin"));
     CHECK(has("stt-builtin-model"));
+    // A model from Hugging Face: the address is read before anything is asked of the network, so
+    // one that is not a repository is refused at once, in the form's own words.
+    CHECK(has("stt-hf-url") && has("stt-hf-find") && has("stt-hf-browse") && !has("stt-hf-add") && has("cleanup-hf-url"));
+    CHECK(click("stt-hf-url"));
+    type_text("https://example.com/owner/model");
+    CHECK(click("stt-hf-find"));
+    for (Uint64 until = SDL_GetTicks() + 3000; SDL_GetTicks() < until && !SDL_strcmp(eh_settings_window_text("stt-hf"), "Looking up versions…");) frames(1), SDL_Delay(10);
+    IS("stt-hf", "Only huggingface.co URLs (or a bare owner/model) are supported");
+    CHECK(!has("stt-hf-add"));
+    key(SDL_SCANCODE_A, SDLK_A, SDL_KMOD_LCTRL);
+    key(SDL_SCANCODE_BACKSPACE, SDLK_BACKSPACE, 0);
     // The style: custom values in place of the slider.
     CHECK(has("cleanup-style") && !has("cleanup-temperature"));
     CHECK(click("cleanup-style-mode-custom"));

@@ -15,6 +15,7 @@
 #include "desk.h"
 #include "draw.h"
 #include "engines.h"
+#include "hf.h"
 #include "history.h"
 #include "hotkeys.h"
 #include "loop.h"
@@ -43,6 +44,12 @@ typedef struct {
     bool testing, fetching;
     char **remote_models;            // what the service listed
     int remote_count, remote_pick;
+    // Adding a model from Hugging Face: the address, the versions found there, the one chosen.
+    char hf_url[300];
+    status hf;
+    bool hf_busy;
+    char **hf_labels, **hf_shown;
+    int hf_count, hf_pick;
 } engine_draft;
 
 static struct {
@@ -89,7 +96,7 @@ static struct {
     const eh_model *ask_model;
 } W;
 
-enum { ASK_NONE, ASK_REMOVE_MODEL, ASK_CLEAR_HISTORY };
+enum { ASK_NONE, ASK_REMOVE_MODEL, ASK_CLEAR_HISTORY, ASK_REMOVE_CUSTOM };
 static const char *const hotkey_paths[4] = { "hotkey", "pauseHotkey", "discardHotkey", "correctHotkey" };
 
 static void say(status *s, tone t, const char *fmt, ...) {
@@ -102,12 +109,7 @@ static void say(status *s, tone t, const char *fmt, ...) {
 
 /* ---------------- the draft ---------------- */
 
-static int models_of(eh_model_kind kind, const eh_model **out, int max) {
-    int n = 0;
-    for (int i = 0; i < eh_catalog_count && n < max; i++)
-        if (eh_catalog[i].kind == kind) out[n++] = &eh_catalog[i];
-    return n;
-}
+static int models_of(eh_model_kind kind, const eh_model **out, int max) { return eh_models_list(kind, out, max); }
 
 static int model_index(eh_model_kind kind, const char *id) {
     const eh_model *list[32];
@@ -421,6 +423,90 @@ static void remove_task(void *arg) {
     else say(&d->manage, ST_ERR, "%s", error[0] ? error : "Could not remove model");
 }
 
+typedef struct { eh_model_kind kind; engine_draft *d; char *address, *variant, *id; } hf_job;
+
+static void hf_clear(engine_draft *d) {
+    for (int i = 0; i < d->hf_count; i++) SDL_free(d->hf_labels[i]), SDL_free(d->hf_shown[i]);
+    SDL_free(d->hf_labels);
+    SDL_free(d->hf_shown);
+    d->hf_labels = d->hf_shown = NULL;
+    d->hf_count = 0;
+}
+
+static void hf_find_task(void *arg) {
+    hf_job *j = arg;
+    engine_draft *d = j->d;
+    char error[1400] = "";
+    eh_jv *listing;
+    EH_AWAIT(listing = eh_hf_discover(j->kind, j->address, error, sizeof error));
+    hf_clear(d);
+    if (!listing) {
+        say(&d->hf, ST_ERR, "%s", error);
+    } else {
+        const eh_jv *variants = eh_jv_get(listing, "variants");
+        const char *recommended = eh_jv_string(eh_jv_get(listing, "recommended"), "");
+        int n = eh_jv_count(variants);
+        d->hf_labels = SDL_calloc((size_t)n + 1, sizeof *d->hf_labels);
+        d->hf_shown = SDL_calloc((size_t)n + 1, sizeof *d->hf_shown);
+        d->hf_pick = 0;
+        for (int i = 0; i < n; i++) {
+            const eh_jv *v = eh_jv_at(variants, i);
+            const char *label = eh_jv_string(eh_jv_get(v, "label"), "");
+            double bytes = eh_jv_number(eh_jv_get(v, "totalBytes"), 0);
+            char size[32] = "", shown[240];
+            if (bytes >= 1e9) SDL_snprintf(size, sizeof size, " · %.1f GB", bytes / 1e9);
+            else if (bytes > 0) SDL_snprintf(size, sizeof size, " · %.0f MB", bytes / 1e6);
+            bool best = !SDL_strcmp(label, recommended);
+            SDL_snprintf(shown, sizeof shown, "%s%s%s", label, size, best ? " · recommended" : "");
+            d->hf_labels[i] = SDL_strdup(label);
+            d->hf_shown[i] = SDL_strdup(shown);
+            if (best) d->hf_pick = i;
+        }
+        d->hf_count = n;
+        say(&d->hf, ST_OK, "%s — %d version%s", eh_jv_string(eh_jv_get(listing, "repo"), ""), n, n == 1 ? "" : "s");
+        eh_jv_free(listing);
+    }
+    d->hf_busy = false;
+    SDL_free(j->address);
+    SDL_free(j);
+}
+
+static void hf_add_task(void *arg) {
+    hf_job *j = arg;
+    engine_draft *d = j->d;
+    char error[1400] = "", id[300] = "";
+    if (eh_custom_model_add(j->kind, j->address, j->variant, id, sizeof id, error, sizeof error)) {
+        d->model = model_index(j->kind, id);
+        d->hf_url[0] = 0;
+        hf_clear(d);
+        d->manage.tone = ST_NONE;
+        say(&d->hf, ST_OK, "Added — click Download to fetch it");
+    } else {
+        say(&d->hf, ST_ERR, "%s", error);
+    }
+    d->hf_busy = false;
+    SDL_free(j->address);
+    SDL_free(j->variant);
+    SDL_free(j);
+}
+
+static void custom_remove_task(void *arg) {
+    hf_job *j = arg;
+    engine_draft *d = j->d;
+    // The other models keep their places in the list by their ids.
+    const eh_model *chosen = model_at(j->kind, d->model);
+    char keep[300], error[300] = "";
+    SDL_strlcpy(keep, chosen && SDL_strcmp(chosen->id, j->id) ? chosen->id : "", sizeof keep);
+    if (eh_custom_model_remove(j->id, error, sizeof error)) {
+        d->model = model_index(j->kind, keep[0] ? keep : eh_setting_str(j->kind == EH_MODEL_STT ? "stt.builtin.model" : "cleanup.builtin.model"));
+        say(&d->manage, ST_PLAIN, "Removed");
+    } else {
+        say(&d->manage, ST_ERR, "%s", error[0] ? error : "Could not remove model");
+    }
+    SDL_free(j->id);
+    SDL_free(j);
+}
+
 /* ---------------- laying the page out ---------------- */
 
 static struct { float x, w, y; } pg;
@@ -625,10 +711,10 @@ static void manage(eh_model_kind kind, engine_draft *d) {
     if (installed) {
         SDL_snprintf(id, sizeof id, "%s-model-remove", prefix);
         if (button_at(&x, y, id, "Remove", EH_BTN_DANGER)) {
-            char q[240];
-            SDL_snprintf(q, sizeof q, "Remove %s? You'll need to download it again to use it.", m->label);
+            char q[400];
+            SDL_snprintf(q, sizeof q, m->custom ? "Remove %s and its downloaded files? You'll need to download it again to use it." : "Remove %s? You'll need to download it again to use it.", m->label ? m->label : m->id);
             eh_ui_ask(W.ui, q, "Remove", true);
-            W.ask = ASK_REMOVE_MODEL;
+            W.ask = m->custom ? ASK_REMOVE_CUSTOM : ASK_REMOVE_MODEL;
             W.ask_model = m;
         }
         SDL_strlcpy(line, "Downloaded", sizeof line);
@@ -648,9 +734,70 @@ static void manage(eh_model_kind kind, engine_draft *d) {
         SDL_strlcpy(line, failed ? (job.error[0] ? job.error : "Download failed") : job.cancelled ? "Cancelled" : "Not downloaded", sizeof line);
         if (failed) tone_c = eh_ui_ink(W.ui, EH_ERR, 1);
     }
+    float text_w = gs_ui_text_width(eh_ui_gs(W.ui), line, 12);
     eh_w_line(W.ui, (gs_rect){ x + 4, y, pg.x + pg.w - x - 4, 34 }, line, 12, tone_c, -1);
+    if (m->custom && !installed) {
+        // One of the user's own that is not downloaded can simply be forgotten.
+        x += SDL_min(text_w, 220) + 18;
+        SDL_snprintf(id, sizeof id, "%s-model-forget", prefix);
+        if (button_at(&x, y, id, "Remove from list", EH_BTN_DANGER)) {
+            char q[400];
+            SDL_snprintf(q, sizeof q, "Remove %s from your models?", m->label ? m->label : m->id);
+            eh_ui_ask(W.ui, q, "Remove", true);
+            W.ask = ASK_REMOVE_CUSTOM;
+            W.ask_model = m;
+        }
+    }
     pg.y += 34;
     show(&d->manage);
+}
+
+// A model of the user's choosing: an address on Hugging Face, the versions found there, Add.
+static void hf_block(eh_model_kind kind, const char *prefix, engine_draft *d, const char *placeholder, const char *explain) {
+    char id[48];
+    pg.y += 18;
+    label("Add a model from Hugging Face");
+    SDL_snprintf(id, sizeof id, "%s-hf-url", prefix);
+    eh_w_field(W.ui, take(36), id, d->hf_url, sizeof d->hf_url, placeholder, 0);
+    pg.y += 10;
+    float x = pg.x, y = pg.y;
+    bool was_inert = kind == EH_MODEL_CLEANUP && !W.cleanup_enabled;
+    eh_ui_inert(W.ui, d->hf_busy || was_inert, was_inert);
+    SDL_snprintf(id, sizeof id, "%s-hf-find", prefix);
+    char *address = trimmed(d->hf_url);
+    if (button_at(&x, y, id, "Find versions", EH_BTN_PLAIN) && *address) {
+        hf_job *j = SDL_calloc(1, sizeof *j);
+        j->kind = kind, j->d = d, j->address = SDL_strdup(address);
+        d->hf_busy = true;
+        hf_clear(d);
+        say(&d->hf, ST_PLAIN, "Looking up versions…");
+        eh_spawn(hf_find_task, j);
+    }
+    eh_ui_inert(W.ui, was_inert, was_inert);
+    SDL_snprintf(id, sizeof id, "%s-hf-browse", prefix);
+    if (button_at(&x, y, id, "Browse Hugging Face", EH_BTN_PLAIN) && !SDL_OpenURL(eh_hf_search_url(kind))) say(&d->hf, ST_ERR, "%s", SDL_GetError());
+    pg.y += 34;
+    show(&d->hf);
+    if (d->hf_count) {
+        pg.y += 10;
+        gs_rect row = take(36);
+        float add_w = eh_w_button_width(W.ui, "Add");
+        SDL_snprintf(id, sizeof id, "%s-hf-variant", prefix);
+        eh_w_select(W.ui, (gs_rect){ row.x, row.y, row.w - add_w - 10, row.h }, id, (const char *const *)d->hf_shown, d->hf_count, &d->hf_pick);
+        eh_ui_inert(W.ui, d->hf_busy || was_inert, was_inert);
+        SDL_snprintf(id, sizeof id, "%s-hf-add", prefix);
+        if (eh_w_button(W.ui, (gs_rect){ row.x + row.w - add_w, row.y + 1, add_w, 34 }, id, "Add", EH_BTN_PLAIN) && *address) {
+            hf_job *j = SDL_calloc(1, sizeof *j);
+            j->kind = kind, j->d = d, j->address = SDL_strdup(address), j->variant = SDL_strdup(d->hf_labels[d->hf_pick]);
+            d->hf_busy = true;
+            say(&d->hf, ST_PLAIN, "Adding…");
+            eh_spawn(hf_add_task, j);
+        }
+        eh_ui_inert(W.ui, was_inert, was_inert);
+    }
+    SDL_free(address);
+    hint(explain);
+    if (d->hf_busy) eh_ui_again(W.ui, 100);
 }
 
 static void engine_choice(const char *prefix, engine_draft *d, const char *explain, const char *here, const char *there) {
@@ -755,6 +902,8 @@ static void speech(void) {
     if (!W.stt.engine) {
         model_select(EH_MODEL_STT, "stt-builtin-model", &W.stt);
         manage(EH_MODEL_STT, &W.stt);
+        hf_block(EH_MODEL_STT, "stt", &W.stt, "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2",
+                 "Paste a Hugging Face URL or owner/model of a sherpa-onnx transducer bundle (encoder, decoder, joiner + tokens.txt) or Whisper export (encoder, decoder + tokens.txt), such as csukuangfj/sherpa-onnx-whisper-turbo. Other encoder-decoder models, such as NeMo Canary, aren't supported. Files with a published Hugging Face LFS SHA-256 are verified on download. Browse Hugging Face opens your browser on the Parakeet TDT exports, the family the built-in models come from.");
     } else {
         remote_fields("stt", &W.stt, false, "http://127.0.0.1:8484/v1", "The app calls {base URL}/audio/transcriptions.", "parakeet");
     }
@@ -786,6 +935,8 @@ static void cleanup(void) {
     if (!W.cleanup.engine) {
         model_select(EH_MODEL_CLEANUP, "cleanup-builtin-model", &W.cleanup);
         manage(EH_MODEL_CLEANUP, &W.cleanup);
+        hf_block(EH_MODEL_CLEANUP, "cleanup", &W.cleanup, "unsloth/gemma-3-1b-it-GGUF",
+                 "Paste a Hugging Face GGUF model URL or owner/model. Earheart lists its versions and downloads the one you pick. Files with a published Hugging Face LFS SHA-256 are verified on download. Browse Hugging Face opens your browser on chat GGUF models up to 12B parameters; smaller ones clean up faster.");
     } else {
         remote_fields("cleanup", &W.cleanup, true, "http://127.0.0.1:11434/v1", "The app calls {base URL}/chat/completions.", "llama3.2");
     }
@@ -1001,6 +1152,12 @@ static void answer_question(void) {
         say(&d->manage, ST_PLAIN, "Removing…");
         eh_spawn(remove_task, (void *)W.ask_model);
     }
+    if (answer == 1 && W.ask == ASK_REMOVE_CUSTOM && W.ask_model) {
+        hf_job *j = SDL_calloc(1, sizeof *j);
+        j->kind = W.ask_model->kind, j->d = j->kind == EH_MODEL_STT ? &W.stt : &W.cleanup, j->id = SDL_strdup(W.ask_model->id);
+        say(&j->d->manage, ST_PLAIN, "Removing…");
+        eh_spawn(custom_remove_task, j);
+    }
     if (answer == 1 && W.ask == ASK_CLEAR_HISTORY) {
         eh_history_clear();
         W.history_page = 0;
@@ -1182,7 +1339,8 @@ const char *eh_settings_window_text(const char *what) {
         if (!SDL_strcmp(what, status_id)) return W.hotkey_status[i].tone == ST_NONE ? "" : W.hotkey_status[i].text;
     }
     const status *s = !SDL_strcmp(what, "save") ? &W.save : !SDL_strcmp(what, "stt-test") ? &W.stt.test : !SDL_strcmp(what, "stt-fetch") ? &W.stt.fetch
-                    : !SDL_strcmp(what, "cleanup-test") ? &W.cleanup.test : !SDL_strcmp(what, "cleanup-fetch") ? &W.cleanup.fetch : NULL;
+                    : !SDL_strcmp(what, "cleanup-test") ? &W.cleanup.test : !SDL_strcmp(what, "cleanup-fetch") ? &W.cleanup.fetch
+                    : !SDL_strcmp(what, "stt-hf") ? &W.stt.hf : !SDL_strcmp(what, "cleanup-hf") ? &W.cleanup.hf : NULL;
     if (s) return s->tone == ST_NONE ? "" : s->text;
     if (!SDL_strcmp(what, "section")) return section_ids[W.section];
     if (!SDL_strcmp(what, "max-seconds")) return W.max_seconds;

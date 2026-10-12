@@ -1,6 +1,9 @@
 #include "model_jobs.h"
 #include <SDL3/SDL.h>
 #include "download.h"
+#include "hf.h"
+#include "jv.h"
+#include "settings.h"
 #include "loop.h"
 
 typedef struct {
@@ -91,5 +94,91 @@ bool eh_model_job_remove(const eh_model *m, char *error, size_t error_size) {
     }
     bool ok = eh_model_remove(m, error, error_size);
     if (s) s->removing = false, s->job = (eh_model_job){ 0 };
+    return ok;
+}
+
+/* ---------------- the user's own models ---------------- */
+
+static const eh_jv *custom_entry(const char *id) {
+    const eh_jv *list = eh_jv_get(eh_settings(), "customModels");
+    for (int i = 0; i < eh_jv_count(list); i++)
+        if (!SDL_strcmp(eh_jv_string(eh_jv_get(eh_jv_at(list, i), "id"), ""), id)) return eh_jv_at(list, i);
+    return NULL;
+}
+
+// The settings with `customModels` replaced: every entry but the one named, and `add` when given.
+static bool save_customs(const char *without, eh_jv *add, const char *kind_reset, char *error, size_t error_size) {
+    eh_jv *next = eh_jv_clone(eh_settings()), *list = eh_jv_array();
+    const eh_jv *old = eh_jv_get(eh_settings(), "customModels");
+    for (int i = 0; i < eh_jv_count(old); i++)
+        if (SDL_strcmp(eh_jv_string(eh_jv_get(eh_jv_at(old, i), "id"), ""), without)) eh_jv_push(list, eh_jv_clone(eh_jv_at(old, i)));
+    if (add) eh_jv_push(list, add);
+    eh_jv_set(next, "customModels", list);
+    if (kind_reset) {
+        char path[40];
+        SDL_snprintf(path, sizeof path, "%s.builtin.model", kind_reset);
+        const eh_model *fallback = eh_catalog_find(!SDL_strcmp(kind_reset, "stt") ? EH_MODEL_STT : EH_MODEL_CLEANUP, NULL);
+        if (fallback) eh_jv_set_path(next, path, eh_jv_str(fallback->id));
+    }
+    return eh_settings_save(next, error, error_size);
+}
+
+static const char *delete_error(const char *error) {
+    return SDL_strstr(error, "ermission") || SDL_strstr(error, "busy") || SDL_strstr(error, "ccess") || SDL_strstr(error, "used by")
+               ? "The model's files are in use or locked. Close anything using the model, then try again." : error;
+}
+
+bool eh_custom_model_add(eh_model_kind kind, const char *address, const char *variant, char *model_id, size_t id_size, char *error, size_t error_size) {
+    char *asked = SDL_strdup(address), *wanted = SDL_strdup(variant ? variant : "");
+    eh_jv *listing;
+    EH_AWAIT(listing = eh_hf_discover(kind, asked, error, error_size));
+    SDL_free(asked);
+    if (!listing) { SDL_free(wanted); return false; }
+    const eh_jv *variants = eh_jv_get(listing, "variants"), *chosen = NULL;
+    const char *recommended = eh_jv_string(eh_jv_get(listing, "recommended"), "");
+    for (int pass = 0; pass < 2 && !chosen; pass++)
+        for (int i = 0; i < eh_jv_count(variants) && !chosen; i++)
+            if (!SDL_strcmp(eh_jv_string(eh_jv_get(eh_jv_at(variants, i), "label"), ""), pass ? recommended : wanted)) chosen = eh_jv_at(variants, i);
+    SDL_free(wanted);
+    if (!chosen) {
+        SDL_strlcpy(error, "That version is no longer available", error_size);
+        eh_jv_free(listing);
+        return false;
+    }
+    eh_jv *model = eh_hf_model(kind, eh_jv_string(eh_jv_get(listing, "repo"), ""), chosen);
+    eh_jv_free(listing);
+    const char *id = eh_jv_string(eh_jv_get(model, "id"), "");
+    SDL_strlcpy(model_id, id, id_size);
+    // An earlier definition under this id that is not this one: its files are another revision's.
+    const eh_jv *existing = custom_entry(id);
+    if (existing && !eh_jv_equal(existing, model)) {
+        const eh_model *old = eh_catalog_find(!SDL_strcmp(eh_jv_string(eh_jv_get(existing, "kind"), ""), "stt") ? EH_MODEL_STT : EH_MODEL_CLEANUP, id);
+        char why[200];
+        if (old && !eh_model_job_remove(old, why, sizeof why)) {
+            SDL_strlcpy(error, delete_error(why), error_size);
+            eh_jv_free(model);
+            return false;
+        }
+    }
+    char *kept = SDL_strdup(id);
+    bool ok = save_customs(kept, model, NULL, error, error_size);
+    SDL_free(kept);
+    return ok;
+}
+
+bool eh_custom_model_remove(const char *id, char *error, size_t error_size) {
+    const eh_jv *entry = custom_entry(id);
+    const char *kind = entry && !SDL_strcmp(eh_jv_string(eh_jv_get(entry, "kind"), ""), "stt") ? "stt" : "cleanup";
+    const eh_model *m = eh_catalog_find(!SDL_strcmp(kind, "stt") ? EH_MODEL_STT : EH_MODEL_CLEANUP, id);
+    char why[200] = "", path[40], *name = SDL_strdup(id);
+    if (m && !eh_model_job_remove(m, why, sizeof why)) {
+        SDL_strlcpy(error, delete_error(why), error_size);
+        SDL_free(name);
+        return false;
+    }
+    SDL_snprintf(path, sizeof path, "%s.builtin.model", kind);
+    bool chosen = !SDL_strcmp(eh_setting_str(path), name);
+    bool ok = save_customs(name, NULL, chosen ? kind : NULL, error, error_size);
+    SDL_free(name);
     return ok;
 }

@@ -93,7 +93,10 @@ static void on_live(unsigned sid, const char *notice) {
 
 static void on_paused(unsigned sid, bool paused) { set_status(paused ? "paused" : "recording", NULL); }
 
-static void settings_changed(void *user, const eh_jv *previous, const eh_jv *current) { eh_pipeline_settings_changed(); }
+static void settings_changed(void *user, const eh_jv *previous, const eh_jv *current) {
+    eh_models_set_custom(eh_jv_get(current, "customModels"));
+    eh_pipeline_settings_changed();
+}
 
 void eh_app_init(const char *data_dir, eh_observer *observer, eh_deliver_fn *deliver_fn) {
     A.observer = observer;
@@ -118,6 +121,7 @@ void eh_app_init(const char *data_dir, eh_observer *observer, eh_deliver_fn *del
     dirs[n++] = own_models;
     dirs[n++] = their_models;
     eh_models_set_dirs(dirs, n);
+    eh_models_set_custom(eh_jv_get(eh_settings(), "customModels"));
     eh_engines_init();
     static const eh_recorder_deps recorder = { eh_pipeline_captured, eh_pipeline_partial, eh_pipeline_record_cancelled, eh_pipeline_record_error, on_live, on_paused };
     eh_recorder_init(&recorder);

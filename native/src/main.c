@@ -27,6 +27,7 @@
 #include "cleanup.h"
 #include "cores.h"
 #include "download.h"
+#include "hf.h"
 #include "gs_rand.h"
 #include "overlay.h"
 #include "engine.h"
@@ -50,10 +51,22 @@ static int cmd_models(int argc, char **argv) {
     SDL_snprintf(own, sizeof own, "%s" EH_SEP "models", eh_data_dir());
     const char *dirs[] = { dir ? dir : own };
     eh_models_set_dirs(dirs, 1);
+    // The user's own models, from the settings beside the models.
+    char settings_path[1300];
+    SDL_snprintf(settings_path, sizeof settings_path, "%s" EH_SEP "settings.json", eh_data_dir());
+    size_t settings_len = 0;
+    char *settings_text = SDL_LoadFile(settings_path, &settings_len);
+    eh_jv *saved = settings_text ? eh_jv_parse(settings_text, settings_len) : NULL;
+    eh_models_set_custom(eh_jv_get(saved, "customModels"));
+    eh_jv_free(saved);
+    SDL_free(settings_text);
     const char *verb = i < argc ? argv[i++] : "list";
     if (!SDL_strcmp(verb, "list")) {
-        for (int k = 0; k < eh_catalog_count; k++) {
-            const eh_model *m = &eh_catalog[k];
+        const eh_model *all[64];
+        int total = eh_models_list(EH_MODEL_STT, all, 64);
+        total += eh_models_list(EH_MODEL_CLEANUP, all + total, 64 - total);
+        for (int k = 0; k < total; k++) {
+            const eh_model *m = all[k];
             long long bytes = 0;
             for (int f = 0; f < m->file_count; f++) bytes += m->files[f].bytes;
             printf("%s/%s\t%s\t%lld MB\t%s%s\n", eh_model_kind_dir(m->kind), m->id, eh_model_installed(m, NULL, 0) ? "installed" : "-", bytes >> 20, m->label, m->is_default ? " (default)" : "");
@@ -61,6 +74,38 @@ static int cmd_models(int argc, char **argv) {
         return 0;
     }
     bool download = !SDL_strcmp(verb, "download");
+    if (!SDL_strcmp(verb, "find")) {
+        // models find stt|cleanup ADDRESS: what Hugging Face holds there that the app can run.
+        if (i + 2 > argc) return usage();
+        eh_model_kind kind = !SDL_strcmp(argv[i], "stt") ? EH_MODEL_STT : EH_MODEL_CLEANUP;
+        char error[1400];
+        eh_jv *listing = eh_hf_discover(kind, argv[i + 1], error, sizeof error);
+        if (!listing) { fprintf(stderr, "earheart: %s\n", error); return 1; }
+        const eh_jv *variants = eh_jv_get(listing, "variants");
+        // With a version named: that version's model definition, as settings keep it.
+        for (int k = 0; i + 2 < argc && k < eh_jv_count(variants); k++) {
+            const eh_jv *v = eh_jv_at(variants, k);
+            if (SDL_strcmp(eh_jv_string(eh_jv_get(v, "label"), ""), argv[i + 2])) continue;
+            eh_jv *model = eh_hf_model(kind, eh_jv_string(eh_jv_get(listing, "repo"), ""), v);
+            char *json = eh_jv_write(model, false);
+            printf("%s\n", json);
+            SDL_free(json);
+            eh_jv_free(model);
+            eh_jv_free(listing);
+            return 0;
+        }
+        if (i + 2 < argc) { fprintf(stderr, "earheart: no version %s there\n", argv[i + 2]); return 1; }
+        printf("%s at %s\n", eh_jv_string(eh_jv_get(listing, "repo"), ""), eh_jv_string(eh_jv_get(listing, "commit"), ""));
+        for (int k = 0; k < eh_jv_count(variants); k++) {
+            const eh_jv *v = eh_jv_at(variants, k);
+            eh_jv *model = eh_hf_model(kind, eh_jv_string(eh_jv_get(listing, "repo"), ""), v);
+            printf("  %-12s %8.0f MB  %d file%s  %s\n", eh_jv_string(eh_jv_get(v, "label"), ""), eh_jv_number(eh_jv_get(v, "totalBytes"), 0) / 1e6, eh_jv_count(eh_jv_get(v, "files")),
+                   eh_jv_count(eh_jv_get(v, "files")) == 1 ? "" : "s", eh_jv_string(eh_jv_get(model, "id"), ""));
+            eh_jv_free(model);
+        }
+        eh_jv_free(listing);
+        return 0;
+    }
     if (!download && SDL_strcmp(verb, "remove")) return usage();
     for (; i < argc; i++) {
         const char *slash = SDL_strchr(argv[i], '/');

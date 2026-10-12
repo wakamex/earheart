@@ -20,3 +20,13 @@ void eh_model_job_forget(const eh_model *m);       // drops a finished download'
 bool eh_model_jobs_active(void);
 // Stops the model's download if one runs, then deletes its files.
 bool eh_model_job_remove(const eh_model *m, char *error, size_t error_size);
+
+// The user's own models, from Hugging Face (the custom-model handlers of main/ipc.js). Both wait
+// for the network or the disk with the lock let go.
+// Looks the address up again, builds the model for the version named (or the recommended one),
+// and adds it to the settings. Files downloaded under an earlier definition of the same id are
+// deleted. `model_id` gets the new model's id.
+bool eh_custom_model_add(eh_model_kind kind, const char *address, const char *variant, char *model_id, size_t id_size, char *error, size_t error_size);
+// Deletes its files and takes it out of the settings; a kind that had it chosen goes back to its
+// default model.
+bool eh_custom_model_remove(const char *id, char *error, size_t error_size);

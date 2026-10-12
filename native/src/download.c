@@ -34,9 +34,14 @@ static long long file_size(const char *path) {
     return SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE ? (long long)info.size : -1;
 }
 
+static bool has_sum(const eh_model_file *f) { return f->sha256 && f->sha256[0]; }
+
+// A file is checked against what its source said of it: its length, its checksum, either or
+// neither. One with neither is taken as it comes.
 static bool verified(const char *path, const eh_model_file *f) {
     char hex[65];
-    return file_size(path) == f->bytes && gs_sha256_file(path, hex) && !SDL_strcmp(hex, f->sha256);
+    if (f->bytes ? file_size(path) != f->bytes : file_size(path) < 0) return false;
+    return !has_sum(f) || (gs_sha256_file(path, hex) && !SDL_strcmp(hex, f->sha256));
 }
 
 static bool fetch_file(const char *dir, const eh_model_file *f, sink *s, SDL_AtomicInt *stop, char *error, size_t error_size) {
@@ -47,8 +52,9 @@ static bool fetch_file(const char *dir, const eh_model_file *f, sink *s, SDL_Ato
         // A part of the right length is a finished download that was never checked. A longer one,
         // or one that fails its check, is not this file.
         long long have = file_size(part);
-        if (have == f->bytes && verified(part, f)) return SDL_RenamePath(part, dest);
-        if (have >= f->bytes || have < 0) { SDL_RemovePath(part); have = 0; }
+        if (f->bytes && have == f->bytes && verified(part, f)) return SDL_RenamePath(part, dest);
+        // Without a known length a part cannot be told from a whole file: it is fetched again.
+        if (!f->bytes || have >= f->bytes || have < 0) { SDL_RemovePath(part); have = 0; }
         gs_sha256_init(&s->hash);
         s->file_received = 0;
         s->name = f->name;
@@ -79,13 +85,14 @@ static bool fetch_file(const char *dir, const eh_model_file *f, sink *s, SDL_Ato
         char hex[65];
         gs_sha256_final(&s->hash, digest);
         gs_sha256_hex(digest, hex);
-        if (s->file_received == f->bytes && !SDL_strcmp(hex, f->sha256)) return SDL_RenamePath(part, dest);
+        bool length_ok = !f->bytes || s->file_received == f->bytes, sum_ok = !has_sum(f) || !SDL_strcmp(hex, f->sha256);
+        if (length_ok && sum_ok) return SDL_RenamePath(part, dest);
         // Short of its length the connection broke, and the part stays for the next try. At its
         // length, or past it (a server that ignored the range), the bytes are wrong.
-        if (s->file_received < f->bytes) { SDL_snprintf(error, error_size, "Download failed for %s: the connection broke", f->name); return false; }
+        if (f->bytes && s->file_received < f->bytes) { SDL_snprintf(error, error_size, "Download failed for %s: the connection broke", f->name); return false; }
         SDL_RemovePath(part);
         if (have > 0 && attempt == 0) continue;
-        SDL_snprintf(error, error_size, "%s mismatch for %s", s->file_received == f->bytes ? "Checksum" : "Size", f->name);
+        SDL_snprintf(error, error_size, "%s mismatch for %s", length_ok ? "Checksum" : "Size", f->name);
         return false;
     }
     return false;
@@ -112,7 +119,11 @@ bool eh_model_download(const eh_model *m, SDL_AtomicInt *stop, eh_download_progr
     json = SDL_malloc(cap);
     eh_model_fingerprint(m, fingerprint);
     n += (size_t)SDL_snprintf(json + n, cap - n, "{\"files\":{");
-    for (int i = 0; i < m->file_count; i++) n += (size_t)SDL_snprintf(json + n, cap - n, "%s\"%s\":%lld", i ? "," : "", m->files[i].name, m->files[i].bytes);
+    for (int i = 0; i < m->file_count; i++) {
+        // The length on disk, which for a file of unknown length is the only one there is.
+        SDL_snprintf(path, sizeof path, "%s" EH_SEP "%s", dir, m->files[i].name);
+        n += (size_t)SDL_snprintf(json + n, cap - n, "%s\"%s\":%lld", i ? "," : "", m->files[i].name, file_size(path));
+    }
     n += (size_t)SDL_snprintf(json + n, cap - n, "},\"fingerprint\":\"%s\"}", fingerprint);
     SDL_snprintf(path, sizeof path, "%s" EH_SEP ".complete", dir);
     bool ok = !SDL_GetAtomicInt(stop) && SDL_SaveFile(path, json, n);
