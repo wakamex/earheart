@@ -72,9 +72,9 @@ Settings, history and downloads live in a folder of this build's own (`earheart-
 
 The saved microphone is matched by SDL's device name. An id saved by the Electron build is Chromium's and matches nothing, so such a setting falls back to the system's default microphone with the overlay's "Saved mic missing" remark.
 
-### Hotkeys, paste, one instance and the clipboard live in the app until gesso has them (M2, 2026-10-11)
+### Hotkeys, paste, one instance, the clipboard and the overlay window are gesso's (M2, 2026-10-11; from gesso 2026-10-12)
 
-gesso's agent has the request list (`gesso-requests.txt`) and took JSON writing, the drawing primitives and the overlay window first. So that M2 was not held up, the desktop pieces were written in the app behind one interface, `src/desk.h`, with a file per system, for gesso to lift:
+These are gesso's `gs_desk` (gesso pinned at `341834b`). They were written in the app for M2, a file per system, and went into gesso from there; the app's copies are gone. How each works:
 
 - Hotkeys: X11 key grabs on a connection of the app's own, with libX11 opened at run time; `RegisterHotKey` on a thread with its own message queue; Carbon's `RegisterEventHotKey` on macOS, which needs no permission.
 - The paste keystroke: on Linux the tools the Electron build runs, in its order (`wtype` or `ydotool` on Wayland, then `xdotool`); `SendInput` on Windows in place of starting PowerShell; a posted Cmd+V on macOS in place of `osascript`, so the Automation permission is no longer needed and Accessibility alone is.
@@ -201,8 +201,8 @@ Every surface of the Electron build at v0.39.0 and what the native build does wi
 | Pause, discard and copy keys; done card with the result, marked when incomplete | kept |
 | Position remembered between runs | kept |
 | Update prompt with "Skip this version" and "Don't remind me" | after M5, with the updater |
-| Tooltips on the keys, naming the discard hotkey, and on a detail line cut at two lines | not carried yet: gesso has no tooltips. A cut detail's full text is in the log and in the notification |
-| Status in semibold, timer in a monospace face | regular weight of the system font for both, until gesso can ask the system for a weight and a monospace face; the timer keeps a fixed width |
+| Tooltips on the keys, naming the discard hotkey, and on a detail line cut at two lines | not carried yet: the overlay draws itself and is not one of gesso's gs_ui windows, which have tooltips. A cut detail's full text is in the log and in the notification |
+| Status in semibold, timer in a monospace face | kept: gesso's system font at weight 600 and its monospace face |
 
 ### Settings
 
@@ -225,7 +225,7 @@ Every surface of the Electron build at v0.39.0 and what the native build does wi
 | An index that follows the scroll, with keyboard focus handed between index and sections | the index follows the scroll and jumps to a section; after a jump the focus stays on the index entry, where the Electron build moves it into the section |
 | API key fields that never show the key | shown as dots except while the field has the keyboard |
 | Remote model names offered as completions in the model field | offered in a list under the field after Fetch models |
-| Section icons; rounded text fields | a coloured dot per section; text fields and lists have square corners, gesso's |
+| Section icons | a coloured dot per section |
 | An open form is told when the dictionary, output mode or reminders change elsewhere | such changes are merged when the form is saved; an open form does not show them until then |
 
 ### Wizard
@@ -240,8 +240,8 @@ Every surface of the Electron build at v0.39.0 and what the native build does wi
 
 | Electron build | Native build |
 |---|---|
-| Edit the last transcript, select a range, enter its correct spelling | a word or phrase is picked by click, drag or the arrow keys, since gesso's text area does not report its selection; Edit text swaps in a text area for changes by hand |
-| A question with Keep editing and Discard draft when closing with a draft | kept, with the buttons Cancel and Discard draft |
+| Edit the last transcript, select a range, enter its correct spelling | a word or phrase is picked by click, drag or the arrow keys; Edit text swaps in a text area for changes by hand |
+| A question with Keep editing and Discard draft when closing with a draft | kept |
 | Replace and remember (adds to preferred terms), Replace only, Undo replacement | kept |
 | Copy corrected prompt and close, Ctrl or Cmd+Enter | kept |
 
@@ -408,7 +408,7 @@ The microphone's own checks of `scripts/overlay-smoke.js` (a missing device fall
 
 Decisions:
 
-- The overlay draws itself with SDL's renderer and does not use gesso's widget set, whose controls are square and have no opacity. gesso's agent has rounded shapes and opacity on its list; `src/draw.c` is the stopgap.
+- The overlay draws itself with gesso's `gs_draw` shapes on SDL's renderer, in a window from `gs_overlay_window`; it is not a gs_ui window.
 - Its state is a pure step from what the app says to a model, so it is tested without a window or a display.
 - On macOS the paste is a Command key press around the V. A V carrying only the Command flag is read as a paste by Cocoa apps and as a plain V by apps that track modifier keys themselves, SDL's among them.
 
@@ -446,12 +446,12 @@ The Linux figure for the open window is mostly the software OpenGL stack that Xv
 
 Decisions:
 
-- The windows are built on `src/ui.c`, the app's own layer over gesso's gs_ui. gs_ui supplies text fields, the dropdown's list, wrapped text and hit testing; the layer adds a Tab order with a visible focus mark and keyboard activation, a scrolling page, rounded buttons, switches, radio buttons, a slider with stops, the hotkey field, a modal question, and inert controls. gesso's agent was asked for these (items 8 to 12 of `gesso-requests.txt`) and had landed none; the layer is written to be lifted into gesso or replaced by it.
+- The windows are built on gesso's gs_ui (pinned at `341834b`), which has the Tab order with its focus mark, disabled controls, the scrolling page, switches, radio buttons, the slider with stops, masked fields, the hotkey field and modal questions. `src/ui.c` is what is the app's own: the window with its icon, the colours, the button kinds (drawn through `gs_ui_activated`), and the list of controls the window tests look things up in. An earlier `src/ui.c` built all of those controls itself; gesso had them by the time M5 was written up, and the app moved onto them the same day.
 - Save goes through one path for the settings window and the wizard (`src/commit.c`), which is the Electron build's: the app's own fields and those changed elsewhere come from the live settings, hotkeys change first, a refused one keeps its saved value.
 - The hotkey rules are behind a backend of two functions, so they are tested without a desktop and the desktop code only grabs and releases keys.
 - API keys are kept in the settings file, readable only by the user, until the keychain work. The Electron build encrypts them with the system's keyring.
-- The correction editor picks words where the Electron build selects text (see the parity list).
-- A file from Hugging Face without a checksum is checked by its length, and one without a known length is fetched whole each time; the Electron build also compares a resumed download's HTTP validators, which gesso's HTTP module does not expose.
+- The correction editor picks words where the Electron build selects text (see the parity list). gesso's text area reports its selection as of the pin (`gs_ui_textarea_selection`), so selecting as the Electron build does is now possible and not yet done.
+- A file from Hugging Face without a checksum is checked by its length, and one without a known length is fetched whole each time; the Electron build also compares a resumed download's HTTP validators, which the app does not do yet; gesso's HTTP module gives a response's headers as of the pin.
 - The overlay's window exists only while it shows. Kept from start-up it took the tray app from 12 MiB to 85 MiB on the Linux host.
 - On macOS a window shown by the app activates it, since an app without a Dock icon is not made active by showing a window.
 

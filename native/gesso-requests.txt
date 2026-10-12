@@ -59,3 +59,11 @@ What I had to work around in gs_ui, in the order it cost me:
 25. gs_http has no way to read response headers, which a resumed download needs to compare ETag or Last-Modified when a file has no checksum.
 26. Nothing redraws after an input unless the pointer moves, since effects of a click show on the next frame. The layer asks for one more frame after every input; gs_ui_wait_ms could return 0 after a frame that consumed input.
 
+Update, 2026-10-12, after moving onto gesso 341834b.
+
+The app now uses gs_ui's controls (src/ui.c is the window, the colours, the button kinds and a list of controls for tests), gs_desk, gs_overlay_window, gs_draw, gs_jval and the weighted and monospace fonts. Its own jv.c, draw.c and desk*.c are gone. Items 1 to 12, 17, 19 to 24 and 26 are answered by that. What did not fit or is still wanted:
+27. tools/ is not in gesso's build.zig.zon paths, so tools/bundle-macos.sh is not in the fetched package and b.dependency("gesso", .{}).path("tools/bundle-macos.sh") finds nothing. The app keeps its own script.
+28. gs_desk has no call to bring the app forward. On macOS an app without a Dock icon is not made active by showing a window, so a settings window opens without the keyboard; the app calls [NSApp activateIgnoringOtherApps:YES] itself (src/activate_macos.m).
+29. A text area inside a page takes the wheel while the pointer is over it even when it cannot scroll (short text, or already at its end), so a settings page stops scrolling when the pointer reaches the dictionary box. Passing the wheel on when the inner control has nowhere to go would match what browsers do.
+30. gs_ui_confirm's two buttons cannot be clicked by a test that looks controls up by name; the app's tests answer with the keyboard. A way to ask where a named control is would let tests of any gs_ui app click things.
+
