@@ -222,7 +222,11 @@ Every surface of the Electron build at v0.39.0 and what the native build does wi
 | History: on or off, clear, paged list | kept |
 | Advanced: maximum dictation length, unload models after idle, run the wizard again, open the error log | kept |
 | Updates: check automatically, remind, check now, skip this version | after M5, with the updater |
-| An index that follows the scroll, with keyboard focus handed between index and sections | kept |
+| An index that follows the scroll, with keyboard focus handed between index and sections | the index follows the scroll and jumps to a section; after a jump the focus stays on the index entry, where the Electron build moves it into the section |
+| API key fields that never show the key | shown as dots except while the field has the keyboard |
+| Remote model names offered as completions in the model field | offered in a list under the field after Fetch models |
+| Section icons; rounded text fields | a coloured dot per section; text fields and lists have square corners, gesso's |
+| An open form is told when the dictionary, output mode or reminders change elsewhere | such changes are merged when the form is saved; an open form does not show them until then |
 
 ### Wizard
 
@@ -236,7 +240,8 @@ Every surface of the Electron build at v0.39.0 and what the native build does wi
 
 | Electron build | Native build |
 |---|---|
-| Edit the last transcript, select a range, enter its correct spelling | kept |
+| Edit the last transcript, select a range, enter its correct spelling | a word or phrase is picked by click, drag or the arrow keys, since gesso's text area does not report its selection; Edit text swaps in a text area for changes by hand |
+| A question with Keep editing and Discard draft when closing with a draft | kept, with the buttons Cancel and Discard draft |
 | Replace and remember (adds to preferred terms), Replace only, Undo replacement | kept |
 | Copy corrected prompt and close, Ctrl or Cmd+Enter | kept |
 
@@ -408,4 +413,49 @@ Decisions:
 - On macOS the paste is a Command key press around the V. A V carrying only the Command flag is read as a paste by Cocoa apps and as a plain V by apps that track modifier keys themselves, SDL's among them.
 
 Found while testing it, and fixed: the engine client writing to a worker whose pipe had just closed (Windows), the start-up check waiting on a hotkey registration that waited on it (macOS), a second instance's request arriving before the first had finished starting (a crash), and the bar staying where the system first put it until the transcript grew.
+
+### M5: settings, wizard, correction, models (2026-10-12)
+
+The three framed windows exist and are driven end to end by tests that give the real windows mouse, wheel and keyboard events and check what they then show and save. They pass on Linux (under Openbox), macOS and Windows in CI.
+
+| Window | Test | Checks | What is checked |
+|---|---|---|---|
+| Settings | `earheart settings-smoke` | 114 | every control a Tab stop and scrolled into view by Tab; the index gliding to a section and following the wheel; hotkey capture, Escape, Clear; cleanup off putting its fields out of reach; engine and style choices swapping their fields; an unreachable service reported; a Hugging Face address refused before the network is asked; a number outside its limits saved as the nearest with the window saying so; a hotkey another app holds keeping its saved value with the reason under the field; Save closing the window |
+| Settings | the same, last part | 18 files | settings files as v0.39.0 writes them come back unchanged from an untouched form |
+| Wizard | `earheart wizard-smoke` | 59 | seven steps forward and back; capture and Reset; cleanup off; the download put off; a refused record hotkey sending the user back to its step with nothing closed; Finish saving and opening the settings with the wizard's line; run again from the settings and skipped |
+| Correction editor | `earheart correction-smoke` | 43 | picking by arrow keys and Shift; Replace and remember through Enter, the dictionary gaining the spelling; Undo; Replace only; Escape giving up a pick; an unapplied spelling stopping the copy; a second transcript not replacing a draft; the question on closing with a draft; Ctrl+Enter copying to the clipboard and closing |
+
+Logic ported and compared exactly against the JavaScript:
+
+| Logic | Source | Cases |
+|---|---|---|
+| Hotkey manager: pair changes, the armed discard hotkey, the correction hotkey, collisions, rollback, suspend | `main/hotkeys.js` | 2,140 steps in 250 random sequences, per system |
+| Dictionary: terms, a form's edits merged into the live list, a spelling remembered | `renderer/vocabulary.js` | 300 merges, 70 spellings |
+| Hugging Face lookup: address parsing, versions of a repository, model definitions, refusals | `main/services/hf-models.js` | 28 addresses, 173 repositories (83 usable, 18 kinds of refusal) |
+
+Models: the Electron build's downloaded models are found where they are and not downloaded again (the wizard's last step shows them Ready, and `tests/e2e.sh` dictates with a model fetched once and cached). A model added from Hugging Face was taken through the whole path by hand: `csukuangfj/sherpa-onnx-whisper-tiny.en` (int8, two files with a published checksum and one without) looked up, added, downloaded, and dictated with; its completion marker carries the fingerprint the Electron build computes for the same definition.
+
+Memory, one process, no models loaded:
+
+| | Linux host (software OpenGL under Xvfb) | Mac (Metal) | Electron build, Linux (M0) |
+|---|---|---|---|
+| In the tray | 12 MiB | 13 MB footprint | 267 MiB |
+| Settings window open | 147 MiB resident | 58 MB footprint | 313 MiB |
+
+The Linux figure for the open window is mostly the software OpenGL stack that Xvfb forces; it is not what a desktop with a graphics driver shows, and was not measured there.
+
+Decisions:
+
+- The windows are built on `src/ui.c`, the app's own layer over gesso's gs_ui. gs_ui supplies text fields, the dropdown's list, wrapped text and hit testing; the layer adds a Tab order with a visible focus mark and keyboard activation, a scrolling page, rounded buttons, switches, radio buttons, a slider with stops, the hotkey field, a modal question, and inert controls. gesso's agent was asked for these (items 8 to 12 of `gesso-requests.txt`) and had landed none; the layer is written to be lifted into gesso or replaced by it.
+- Save goes through one path for the settings window and the wizard (`src/commit.c`), which is the Electron build's: the app's own fields and those changed elsewhere come from the live settings, hotkeys change first, a refused one keeps its saved value.
+- The hotkey rules are behind a backend of two functions, so they are tested without a desktop and the desktop code only grabs and releases keys.
+- API keys are kept in the settings file, readable only by the user, until the keychain work. The Electron build encrypts them with the system's keyring.
+- The correction editor picks words where the Electron build selects text (see the parity list).
+- A file from Hugging Face without a checksum is checked by its length, and one without a known length is fetched whole each time; the Electron build also compares a resumed download's HTTP validators, which gesso's HTTP module does not expose.
+- The overlay's window exists only while it shows. Kept from start-up it took the tray app from 12 MiB to 85 MiB on the Linux host.
+- On macOS a window shown by the app activates it, since an app without a Dock icon is not made active by showing a window.
+
+Found while testing, and fixed: the events that wake the main thread carried no type, so the tray menu was never rebuilt after start-up; Xlib's default handler ended the process on an error for a window closed a moment before; a quit signal was not noticed on macOS until some other event arrived, 20 seconds with the settings window open.
+
+Not in M5, by the plan: start on login, the keychain, notifications, the updater and its settings section. Open from M2: a noise suppressor to close the 2.6 point gap in noisy rooms.
 

@@ -45,3 +45,17 @@ Findings:
 17. Font weights and a monospace face. gs_fontset_system gives one regular face. The overlay's design sets the status in semibold and the timer in the system's monospace face with tabular digits; the settings window will want semibold headings. Wanted: the system font in a chosen weight (400, 500, 600) and the system monospace face.
 18. Tooltips: a short text shown after the pointer rests on a control. The overlay's keys name their hotkeys that way, and a detail line cut at two lines shows its full text.
 19. gs_fontset_wrap with a limit of lines and an ellipsis on the last would replace what the overlay does by hand for its two-line detail.
+
+Update, 2026-10-12, after building M5 (settings, wizard, correction editor) in the app.
+
+The three windows are built on native/src/ui.c, a layer over gs_ui that is yours to lift: a Tab order with a focus mark and Space/Enter activation, one scrolling page per window with a glide, rounded buttons, switches, radio buttons, a slider with stops, a field that captures a key combination as an Electron accelerator, a modal question, and controls that are shown and cannot be used. native/src/window_smoke.c drives real windows with synthetic SDL events and is a pattern you may want for gs_ui's own tests.
+
+What I had to work around in gs_ui, in the order it cost me:
+20. No way to read a text area's selection (start and end). The correction editor needed "what is selected" and I replaced selecting with picking words.
+21. gs_ui's controls know nothing of a clip or of being disabled, so a field half under a scrolling page's edge still takes clicks there. The layer draws a still look-alike whenever the pointer is outside the page or the controls are inert. A disabled state and hit testing that respects gs_ui_clip would remove that.
+22. A field empties itself on Escape. Right for a search box, wrong for a settings field; the layer keeps Escape from reaching gs_ui.
+23. No masked field. The layer shows dots unless the field has the keyboard.
+24. Fields, text areas and dropdowns are square; a corner radius in gs_ui_style would let them match rounded controls.
+25. gs_http has no way to read response headers, which a resumed download needs to compare ETag or Last-Modified when a file has no checksum.
+26. Nothing redraws after an input unless the pointer moves, since effects of a click show on the next frame. The layer asks for one more frame after every input; gs_ui_wait_ms could return 0 after a frame that consumed input.
+
