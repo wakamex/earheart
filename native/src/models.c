@@ -1,3 +1,4 @@
+#include "files.h"
 #include "catalog.h"
 #include <SDL3/SDL.h>
 #include <string.h>
@@ -80,7 +81,7 @@ void eh_models_set_custom(const gs_jval *list) {
     for (int i = 0; i < count; i++) {
         const gs_jval *def = gs_jval_at(list, i);
         if (!def || gs_jval_kind(def) != GS_JSON_OBJECT) continue;
-        char *text = gs_jval_write(def, false);
+        char *text = eh_json_text(def, false);
         // The same definition as before is the same model: whoever holds it keeps a good pointer.
         custom *c = NULL;
         for (int k = 0; k < custom_count && !c; k++)

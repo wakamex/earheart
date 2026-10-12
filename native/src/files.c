@@ -1,4 +1,5 @@
 #include "files.h"
+#include <stdlib.h>
 #include <SDL3/SDL.h>
 #ifndef _WIN32
 #include <sys/stat.h>
@@ -30,4 +31,10 @@ bool eh_write_file_atomic(const char *path, const void *data, size_t len, char *
         SDL_RemovePath(tmp);
     }
     return ok;
+}
+
+char *eh_json_text(const gs_jval *v, bool pretty) {
+    char *text = gs_jval_write(v, pretty), *copy = SDL_strdup(text ? text : "null");
+    free(text);
+    return copy;
 }

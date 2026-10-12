@@ -55,7 +55,7 @@ void eh_history_add(const char *raw, const char *text, bool cleaned, bool incomp
     for (int i = 0, max = limit > 0 ? limit : 100; i < gs_jval_count(items) && i + 1 < max; i++) gs_jval_push(kept, gs_jval_clone(gs_jval_at(items, i)));
     gs_jval_free(items);
     items = H.items = kept;
-    char *json = gs_jval_write(items, true), error[256];
+    char *json = eh_json_text(items, true), error[256];
     if (!eh_write_file_atomic(H.path, json, SDL_strlen(json), error, sizeof error)) SDL_Log("history write failed: %s", error);
     SDL_free(json);
 }

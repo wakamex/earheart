@@ -3,11 +3,12 @@
 // files make and their order, the model definition for each, and every refusal's message.
 #include <SDL3/SDL.h>
 #include <string.h>
+#include "files.h"
 #include "hf.h"
 #include "test.h"
 
 static void show(const char *what, const gs_jval *got, const gs_jval *want) {
-    char *a = got ? gs_jval_write(got, false) : SDL_strdup("(none)"), *b = want ? gs_jval_write(want, false) : SDL_strdup("(none)");
+    char *a = got ? eh_json_text(got, false) : SDL_strdup("(none)"), *b = want ? eh_json_text(want, false) : SDL_strdup("(none)");
     size_t at = 0;
     while (a[at] && a[at] == b[at]) at++;
     size_t from = at > 60 ? at - 60 : 0;

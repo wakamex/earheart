@@ -13,6 +13,7 @@
 // delivered then is what the live preview had already decoded, marked incomplete.
 #include <SDL3/SDL.h>
 #include <stdio.h>
+#include "files.h"
 #include "app.h"
 #include "loop.h"
 #include "paths.h"
@@ -61,7 +62,7 @@ static void observer(const char *kind, const char *a, const char *b, double numb
     if (b) gs_jval_set(o, "b", gs_jval_str(b));
     if (!SDL_strcmp(kind, "progress")) gs_jval_set(o, "fraction", gs_jval_num(number));
     if (detail) gs_jval_set(o, "detail", gs_jval_clone(detail));
-    char *line = gs_jval_write(o, false);
+    char *line = eh_json_text(o, false);
     puts(line);
     fflush(stdout);
     SDL_free(line);
@@ -177,7 +178,7 @@ int eh_cmd_dictate(int argc, char **argv) {
         gs_jval_set(o, "cleanedPartials", gs_jval_num(D.cleaned_partials));
         gs_jval_set(o, "lastPartial", gs_jval_str(D.raw ? D.raw : ""));
         gs_jval_set(o, "notices", gs_jval_num(D.notices));
-        char *line = gs_jval_write(o, false);
+        char *line = eh_json_text(o, false);
         puts(line);
         fflush(stdout);
         SDL_free(line);

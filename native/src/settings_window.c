@@ -3,6 +3,7 @@
 // until Save, except what is its own action (downloading or removing a model, clearing history).
 // Ported from renderer/settings.js, settings.html and the handlers of main/ipc.js behind them.
 // Everything here runs on the main thread, with the loop's lock held for the length of a frame.
+#include "files.h"
 #include "settings_window.h"
 #include <math.h>
 #include "app.h"
@@ -1362,7 +1363,7 @@ bool eh_settings_window_untouched(void) {
         for (int i = 0; i < gs_jval_count(W.base); i++) {
             const gs_jval *a = gs_jval_at(W.base, i), *b = gs_jval_get(now, gs_jval_key(W.base, i));
             if (gs_jval_equal(a, b)) continue;
-            char *was = gs_jval_write(a, false), *is = b ? gs_jval_write(b, false) : SDL_strdup("(missing)");
+            char *was = eh_json_text(a, false), *is = b ? eh_json_text(b, false) : SDL_strdup("(missing)");
             SDL_Log("%s: %s -> %s", gs_jval_key(W.base, i), was, is);
             SDL_free(was);
             SDL_free(is);

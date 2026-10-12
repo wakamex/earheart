@@ -23,7 +23,7 @@ void test_settings(const char *vectors) {
         gs_jval *got = eh_settings_resolve(gs_jval_get(gs_jval_at(stored, i), "input"));
         const gs_jval *want = gs_jval_get(gs_jval_at(stored, i), "merged");
         if (!gs_jval_equal(got, want) || !gs_jval_equal(want, got)) {
-            char *a = gs_jval_write(got, false), *b = gs_jval_write(want, false);
+            char *a = eh_json_text(got, false), *b = eh_json_text(want, false);
             printf("  stored file %d differs\n    want: %.600s\n    got:  %.600s\n", i, b, a);
             failures++;
             SDL_free(a);

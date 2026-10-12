@@ -2,6 +2,7 @@
 // {base}/chat/completions and {base}/models. Ported from main/services/. Failure messages never
 // repeat what the service answered: providers echo keys and dictated text there, and users attach
 // the log to bug reports. Each call waits for the network; call it without the loop's lock.
+#include "files.h"
 #include "remote.h"
 #include <SDL3/SDL.h>
 #include <string.h>
@@ -147,7 +148,7 @@ char *eh_remote_clean(const char *transcript, const gs_jval *cleanup, eh_signal 
     gs_jval_push(messages, system);
     gs_jval_push(messages, user);
     gs_jval_set(req, "messages", messages);
-    char *body = gs_jval_write(req, false);
+    char *body = eh_json_text(req, false);
     gs_jval_free(req);
     SDL_free(plan.system_prompt);
     const char *headers[3];

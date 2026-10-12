@@ -20,6 +20,7 @@
 // Both commands go through the engine workers, as dictation does.
 #include <SDL3/SDL.h>
 #include <stdio.h>
+#include "files.h"
 #include "catalog.h"
 #include "chunked.h"
 #include "gs_json.h"
@@ -87,7 +88,7 @@ static int cmd_models(int argc, char **argv) {
             const gs_jval *v = gs_jval_at(variants, k);
             if (SDL_strcmp(gs_jval_string(gs_jval_get(v, "label"), ""), argv[i + 2])) continue;
             gs_jval *model = eh_hf_model(kind, gs_jval_string(gs_jval_get(listing, "repo"), ""), v);
-            char *json = gs_jval_write(model, false);
+            char *json = eh_json_text(model, false);
             printf("%s\n", json);
             SDL_free(json);
             gs_jval_free(model);
@@ -214,7 +215,7 @@ static int transcribe_chunked(eh_engine *e, const char *file, const uint8_t *wav
             gs_jval_push(pieces, p);
         }
         gs_jval_set(out, "pieces", pieces);
-        char *line = gs_jval_write(out, false);
+        char *line = eh_json_text(out, false);
         puts(line);
         SDL_free(line);
         gs_jval_free(out);

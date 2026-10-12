@@ -55,7 +55,7 @@ static void rtf_record(double audio_sec, double elapsed_sec) {
     P.rtf = next;
     gs_jval *o = gs_jval_object();
     gs_jval_set(o, "rtf", gs_jval_num(next));
-    char *json = gs_jval_write(o, false), error[256];
+    char *json = eh_json_text(o, false), error[256];
     eh_write_file_atomic(P.rtf_path, json, SDL_strlen(json), error, sizeof error);  // losing a sample is harmless
     SDL_free(json);
     gs_jval_free(o);

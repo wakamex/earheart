@@ -180,7 +180,7 @@ void eh_settings_on_changed(eh_settings_listener *fn, void *user) {
 bool eh_settings_save(gs_jval *next, char *error, size_t error_size) {
     gs_jval *merged = merged_over_defaults(next);
     gs_jval_free(next);
-    char *text = gs_jval_write(merged, true);
+    char *text = eh_json_text(merged, true);
     bool ok = eh_write_file_atomic(S.path, text, SDL_strlen(text), error, error_size);
     SDL_free(text);
     if (!ok) { gs_jval_free(merged); return false; }
