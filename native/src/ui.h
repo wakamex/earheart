@@ -32,6 +32,8 @@ bool eh_ui_close_asked(eh_ui *ui);  // the window's close button, or Escape with
 // window wants another frame without an event (-1: none).
 gs_rect eh_ui_begin(eh_ui *ui);
 int eh_ui_end(eh_ui *ui);
+// The next frame is also saved as a PNG, as drawn and without the window's frame.
+void eh_ui_shot(eh_ui *ui, const char *png_path);
 void eh_ui_again(eh_ui *ui, int ms);  // asks for another frame within `ms`, for something that changes by itself
 
 // Controls drawn while inert are shown and cannot be used or reached by Tab; `dim` also fades them.

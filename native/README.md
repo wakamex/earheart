@@ -25,6 +25,28 @@ With noise in the room the native build is 2.59 points worse. On clean and quiet
 
 The full list, feature by feature, is the parity list in [decisions.md](decisions.md).
 
+## Side by side with the Electron build
+
+Each row shows one screen in the same state in both builds: the Electron build on the left, the native build on the right. Both were drawn on the same Linux machine into a virtual display ([Xvfb](https://www.x.org/releases/current/doc/man/man1/Xvfb.1.xhtml)) at the same size in pixels, so neither has a window frame. The Electron images come from `scripts/screenshots.js` and the native ones from `earheart screenshots DIR`, which fills each window with the same sample content.
+
+| Screen | Electron | Native |
+| --- | --- | --- |
+| Overlay, recording with live transcript | ![Electron overlay while recording](docs/compare/electron-overlay-recording.png) | ![Native overlay while recording](docs/compare/native-overlay-recording.png) |
+| Overlay, saved microphone missing | ![Electron overlay with the microphone notice](docs/compare/electron-overlay-microphone-fallback.png) | ![Native overlay with the microphone notice](docs/compare/native-overlay-microphone-fallback.png) |
+| Overlay, paused | ![Electron overlay paused](docs/compare/electron-overlay-paused.png) | ![Native overlay paused](docs/compare/native-overlay-paused.png) |
+| Overlay, cleaning up | ![Electron overlay while cleaning up](docs/compare/electron-overlay-processing.png) | ![Native overlay while cleaning up](docs/compare/native-overlay-processing.png) |
+| Overlay, pasted | ![Electron overlay after pasting](docs/compare/electron-overlay-done.png) | ![Native overlay after pasting](docs/compare/native-overlay-done.png) |
+| Settings, General | ![Electron settings](docs/compare/electron-settings.png) | ![Native settings](docs/compare/native-settings.png) |
+| Set-up wizard, first step | ![Electron wizard](docs/compare/electron-wizard.png) | ![Native wizard](docs/compare/native-wizard.png) |
+| Correct transcript | ![Electron correction window](docs/compare/electron-correction.png) | ![Native correction window](docs/compare/native-correction.png) |
+
+The overlay matches closely; the native recording overlay is 2 pixels taller (154 against 152). The framed windows differ in ways the images show:
+
+- Headings and field labels are semibold in the Electron build and regular weight in the native one.
+- The wizard's step sits in the middle of the window in the Electron build and at the top in the native one.
+- Command names inside the settings hints have a chip behind them in the Electron build and are plain text in the native one.
+- In the correction window the native transcript box is taller, the buttons are pills where the Electron build has rounded rectangles, the focused field has a light outline where the Electron build has an accent one, and the selected words stay marked after the keyboard moves to the spelling field.
+
 ## Build and test
 
 It needs [Zig](https://ziglang.org/) 0.17.0 and, for the engine libraries, `curl` and `tar`.

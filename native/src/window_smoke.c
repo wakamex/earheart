@@ -13,6 +13,7 @@
 #include "hotkeys.h"
 #include "gs_json.h"
 #include "loop.h"
+#include "overlay.h"
 #include "paths.h"
 #include "settings.h"
 #include "settings_window.h"
@@ -641,4 +642,83 @@ int eh_cmd_correction_smoke(int argc, char **argv) {
     frames(2);
     CHECK(!T.open());
     return end("correction-smoke", "");
+}
+
+/* ---------------- screenshots ---------------- */
+
+// One frame of the window being driven, saved as it is drawn.
+static void shoot(const char *dir, const char *name) {
+    char path[1300];
+    SDL_snprintf(path, sizeof path, "%s" EH_SEP "%s.png", dir, name);
+    frames(3);
+    eh_ui_shot(ui(), path);
+    frames(1);
+    printf("captured %s.png\n", name);
+}
+
+static void overlay_shot(const char *dir, const char *name, eh_overlay_model *m) {
+    char path[1300];
+    SDL_snprintf(path, sizeof path, "%s" EH_SEP "%s.png", dir, name);
+    if (eh_overlay_shot(m, path, 1)) printf("captured %s.png\n", name);
+}
+
+// `earheart screenshots DIR`: the screens of scripts/screenshots.js, staged the same way, from the
+// native build. Needs a display.
+int eh_cmd_screenshots(int argc, char **argv) {
+    if (argc < 1) { fprintf(stderr, "usage: earheart screenshots DIR\n"); return 2; }
+    const char *dir = argv[0];
+    if (!begin("screenshots")) return 1;
+
+    wizard_target();
+    eh_wizard_window_open();
+    shoot(dir, "wizard");
+    eh_wizard_window_close();
+
+    settings_target();
+    eh_settings_window_open(NULL);
+    shoot(dir, "settings");
+    eh_settings_window_close();
+
+    // The correction editor with "cube cuddle" selected and its spelling typed.
+    correction_target();
+    char error[200];
+    eh_correction_window_open("Run cube cuddle against staging, then check the logs.\nKeep src/Foo.ts unchanged and add a test for the error path.", error, sizeof error);
+    frames(3);
+    for (int i = 0; i < 4; i++) key(SDL_SCANCODE_RIGHT, SDLK_RIGHT, 0);
+    for (int i = 0; i < 11; i++) key(SDL_SCANCODE_RIGHT, SDLK_RIGHT, SDL_KMOD_LSHIFT);
+    key(SDL_SCANCODE_TAB, SDLK_TAB, 0);
+    key(SDL_SCANCODE_A, SDLK_A, SDL_KMOD_LCTRL);
+    type_text("kubectl");
+    shoot(dir, "correction");
+    eh_correction_window_close();
+
+    // The overlay's states, with the staged waveform of the Electron script: newest at the right.
+    eh_overlay_model m = { 0 };
+    for (int i = 0; i < 120; i++) m.levels[119 - i] = (float)(0.02 + 0.13 * SDL_fabs(SDL_sin(i * 0.7 + 1)) * (0.4 + (double)((i * 7919) % 13) / 13));
+    m.level_count = 120;
+    SDL_strlcpy(m.timer, "0:07", sizeof m.timer);
+    SDL_strlcpy(m.status, "recording", sizeof m.status);
+    SDL_strlcpy(m.title, "Listening…", sizeof m.title);
+    m.clean = "In the auth middleware, don't retry on a 401.";
+    m.raw = "in the auth middleware don't retry on a 401 just surface the error and add a test";
+    overlay_shot(dir, "overlay-recording", &m);
+    m.clean = m.raw = NULL;
+    SDL_strlcpy(m.detail, "Saved mic missing — using system default", sizeof m.detail);
+    overlay_shot(dir, "overlay-microphone-fallback", &m);
+    SDL_strlcpy(m.status, "paused", sizeof m.status);
+    SDL_strlcpy(m.title, "Paused", sizeof m.title);
+    SDL_strlcpy(m.detail, "Press play to resume", sizeof m.detail);
+    overlay_shot(dir, "overlay-paused", &m);
+    SDL_strlcpy(m.status, "cleaning", sizeof m.status);
+    SDL_strlcpy(m.title, "Cleaning up…", sizeof m.title);
+    m.detail[0] = 0;
+    m.progress = true;
+    m.fraction = 0.62f;
+    overlay_shot(dir, "overlay-processing", &m);
+    SDL_strlcpy(m.status, "done", sizeof m.status);
+    SDL_strlcpy(m.title, "Pasted", sizeof m.title);
+    SDL_strlcpy(m.detail, "In the auth middleware, don't retry on a 401. Surface the error and add a test.", sizeof m.detail);
+    m.progress = false;
+    overlay_shot(dir, "overlay-done", &m);
+    return end("screenshots", "");
 }

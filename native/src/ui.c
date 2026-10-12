@@ -17,6 +17,7 @@ struct eh_ui {
     bool close_asked, inert, dim;
     bool escape;   // Escape was pressed since the last frame
     bool paging;   // between eh_scroll_begin and eh_scroll_end
+    char shot[1024];  // where the next frame is saved, or ""
     bool was_capturing;  // a hotkey field was waiting for keys when the frame began: Escape was its
     // The controls the frame drew, for tests to find them by name.
     seen drawn[SEEN];
@@ -27,6 +28,7 @@ struct eh_ui {
 };
 
 void eh_ui_again(eh_ui *ui, int ms) { gs_ui_wake(ui->gs, ms); }
+void eh_ui_shot(eh_ui *ui, const char *png_path) { SDL_strlcpy(ui->shot, png_path, sizeof ui->shot); }
 
 eh_ui *eh_ui_new(const char *title, int w, int h, int min_w, int min_h) {
     eh_ui *ui = SDL_calloc(1, sizeof *ui);
@@ -181,6 +183,10 @@ int eh_ui_end(eh_ui *ui) {
     ui->escape = false;
     ui->paging = false;
     gs_ui_end(ui->gs);
+    if (ui->shot[0]) {
+        if (!gs_draw_save_png(ui->r, ui->shot)) SDL_Log("could not save %s: %s", ui->shot, SDL_GetError());
+        ui->shot[0] = 0;
+    }
     SDL_RenderPresent(ui->r);
     return gs_ui_wait_ms(ui->gs);
 }
