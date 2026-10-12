@@ -7,7 +7,7 @@ const std = @import("std");
 const zon = @import("build.zig.zon");
 
 const flags: []const []const u8 = &.{ "-std=c11", "-ffp-contract=off", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-missing-field-initializers" };
-const sources: []const []const u8 = &.{ "engine.c", "worker.c", "paths.c", "cores.c", "files.c", "jv.c", "settings.c", "loop.c", "engines.c", "remote.c", "preview.c", "pipeline.c", "history.c", "recorder.c", "app.c", "jw.c", "wav.c", "audio.c", "chunked.c", "text.c", "stt.c", "cleanup.c", "models.c", "download.c", "catalog.c", "draw.c", "overlay.c", "ui.c", "hotkeys.c", "model_jobs.c", "desk.c", "commit.c", "hf.c" };
+const sources: []const []const u8 = &.{ "engine.c", "worker.c", "paths.c", "cores.c", "files.c", "jv.c", "settings.c", "loop.c", "engines.c", "remote.c", "preview.c", "pipeline.c", "history.c", "recorder.c", "app.c", "jw.c", "wav.c", "audio.c", "chunked.c", "text.c", "stt.c", "cleanup.c", "models.c", "download.c", "catalog.c", "draw.c", "overlay.c", "ui.c", "hotkeys.c", "model_jobs.c", "commit.c", "hf.c" };
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -17,15 +17,11 @@ pub fn build(b: *std.Build) void {
     const mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true, .strip = optimize != .debug });
     mod.addCSourceFiles(.{ .root = b.path("src"), .files = sources, .flags = flags });
     mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{ "main.c", "dictate.c", "deliver.c", "run.c", "settings_window.c", "window_smoke.c", "wizard_window.c", "correction_window.c" }, .flags = flags });
-    // What the app does to the desktop around it, one implementation per system.
-    switch (target.result.os.tag) {
-        .windows => mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{"desk_windows.c"}, .flags = flags }),
-        .macos => {
-            mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{ "desk_macos.c", "desk_unix.c" }, .flags = flags });
-            mod.addCSourceFile(.{ .file = b.path("src/desk_macos_clipboard.m"), .flags = &.{ "-fobjc-arc", "-Wall", "-Wextra", "-Wno-unused-parameter" } });
-            for ([_][]const u8{ "Carbon", "ApplicationServices", "AppKit" }) |f| mod.linkFramework(f, .{});
-        },
-        else => mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{ "desk_linux.c", "desk_unix.c" }, .flags = flags }),
+    // Bringing the app forward when it shows a window: AppKit on macOS, nothing elsewhere.
+    mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{"activate.c"}, .flags = flags });
+    if (target.result.os.tag == .macos) {
+        mod.addCSourceFile(.{ .file = b.path("src/activate_macos.m"), .flags = &.{ "-fobjc-arc", "-Wall", "-Wextra", "-Wno-unused-parameter" } });
+        mod.linkFramework("AppKit", .{});
     }
     mod.addIncludePath(b.path("vendor/include"));
     mod.addCMacro("EARHEART_VERSION", "\"" ++ zon.version ++ "\"");

@@ -7,7 +7,8 @@
 #include "app.h"
 #include "correction_window.h"
 #include "deliver.h"
-#include "desk.h"
+#include "activate.h"
+#include "gs_desk.h"
 #include "hotkeys.h"
 #include "jv.h"
 #include "loop.h"
@@ -148,7 +149,7 @@ static bool begin(const char *name) {
     // The desktop's hotkeys are set up as in the app, though the test grabs none: on X11 that is
     // also what keeps an X error from ending the process.
     char why[256];
-    eh_hotkeys_init(no_hotkey, why, sizeof why);
+    gs_hotkeys_init(no_hotkey, why, sizeof why);
     static const eh_hotkey_backend fake = { fake_add, fake_remove };
     eh_lock();
     eh_hotkeys_backend(&fake);

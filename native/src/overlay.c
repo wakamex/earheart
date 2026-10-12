@@ -1,4 +1,5 @@
 #include "overlay.h"
+#include "gs_desk.h"
 #include <math.h>
 #include "app.h"
 #include "draw.h"
@@ -329,9 +330,7 @@ static struct {
 // would otherwise hold in memory while it waits in the tray.
 static bool make_window(void) {
     O.height = EH_OVERLAY_HEIGHT;
-    O.window = SDL_CreateWindow("Earheart", EH_OVERLAY_WIDTH, EH_OVERLAY_HEIGHT,
-                                SDL_WINDOW_HIDDEN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_TRANSPARENT | SDL_WINDOW_ALWAYS_ON_TOP | SDL_WINDOW_UTILITY |
-                                    SDL_WINDOW_NOT_FOCUSABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    O.window = gs_overlay_window("Earheart", EH_OVERLAY_WIDTH, EH_OVERLAY_HEIGHT);
     O.renderer = O.window ? SDL_CreateRenderer(O.window, NULL) : NULL;
     if (!O.renderer) {
         SDL_Log("no overlay here (%s)", SDL_GetError());
@@ -598,7 +597,7 @@ int eh_overlay_frame(void) {
         if (wanted) {
             if (!O.placed) place();
             fit(O.height, true);
-            SDL_ShowWindow(O.window);
+            gs_overlay_show(O.window, true);  // on every workspace, and over full-screen apps on macOS
         }
     }
     float t = SDL_min(1, (float)(now - O.fade_from) / FADE_MS);

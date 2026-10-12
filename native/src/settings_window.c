@@ -12,7 +12,8 @@
 #include "correction_window.h"
 #include "defaults.h"
 #include "deliver.h"
-#include "desk.h"
+#include "activate.h"
+#include "gs_desk.h"
 #include "draw.h"
 #include "engines.h"
 #include "hf.h"
@@ -662,9 +663,9 @@ static void general(void) {
     card_begin("Auto-paste permission");
     float x = pg.x, y = pg.y;
     if (button_at(&x, y, "accessibility-fix", "Fix auto-paste permission…", EH_BTN_PLAIN)) {
-        if (eh_paste_permitted()) say(&W.accessibility, ST_OK, "Auto-paste is allowed");
+        if (gs_paste_permitted()) say(&W.accessibility, ST_OK, "Auto-paste is allowed");
         else {
-            eh_paste_ask_permission();
+            gs_paste_ask_permission();
             say(&W.accessibility, ST_PLAIN, "Allow Earheart under Privacy & Security ▸ Accessibility, then come back here.");
         }
     }

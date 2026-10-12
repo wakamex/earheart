@@ -1,6 +1,7 @@
 #include "hotkeys.h"
 #include <SDL3/SDL.h>
-#include "desk.h"
+#include "activate.h"
+#include "gs_desk.h"
 #include "loop.h"
 
 #define ACC 64
@@ -41,14 +42,14 @@ static const char *hint(void) {
 
 static void failure(char *out, size_t size, const char *accelerator, const attempt *a) {
     char pretty[96];
-    eh_accelerator_label(accelerator, pretty, sizeof pretty);
+    gs_accelerator_label(accelerator, pretty, sizeof pretty);
     if (a->invalid) SDL_snprintf(out, size, "Invalid hotkey \"%s\": %s", pretty, a->message);
     else SDL_snprintf(out, size, "Could not register \"%s\" (%s).", pretty, hint());
 }
 
 static void used_by(char *out, size_t size, const char *name, const char *accelerator) {
     char pretty[96];
-    eh_accelerator_label(accelerator, pretty, sizeof pretty);
+    gs_accelerator_label(accelerator, pretty, sizeof pretty);
     SDL_snprintf(out, size, "\"%s\" is already used by the %s hotkey", pretty, name);
 }
 
@@ -157,7 +158,7 @@ static void apply_pair(const char *record, const char *pause, res out[2]) {
                 continue;
             }
             char pretty[96], restore[300], unbound[400], prior[400];
-            eh_accelerator_label(previous[n], pretty, sizeof pretty);
+            gs_accelerator_label(previous[n], pretty, sizeof pretty);
             SDL_snprintf(restore, sizeof restore, "Could not restore \"%s\" after rollback%s%s", pretty, a.invalid ? ": " : "", a.invalid ? a.message : "");
             H.held[n][0] = 0;
             SDL_snprintf(unbound, sizeof unbound, "%s. The %s hotkey is now unbound until you save again or restart.", restore, NAME[n]);
@@ -344,7 +345,7 @@ static void apply_all(const char *record, const char *pause, const char *discard
                 }
                 if (before[n][0]) {
                     char pretty[96];
-                    eh_accelerator_label(before[n], pretty, sizeof pretty);
+                    gs_accelerator_label(before[n], pretty, sizeof pretty);
                     res r = { .unbound = true };
                     SDL_snprintf(r.error, sizeof r.error, "Could not restore \"%s\" after rollback. The saved %s hotkey is now unbound until you save again or restart.", pretty, n == EH_HK_DISCARD ? "discard" : NAME[n]);
                     SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s", r.error);
@@ -366,7 +367,7 @@ static void apply_all(const char *record, const char *pause, const char *discard
     attempt back = try_add(held, EH_HK_CORRECT);
     if (!back.ok) {
         char pretty[96], unbound[300];
-        eh_accelerator_label(held, pretty, sizeof pretty);
+        gs_accelerator_label(held, pretty, sizeof pretty);
         H.held[EH_HK_CORRECT][0] = 0;
         SDL_snprintf(unbound, sizeof unbound, "Could not restore \"%s\" after rollback. The correction hotkey is now unbound until you save again or restart.", pretty);
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s", unbound);

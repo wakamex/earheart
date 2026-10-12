@@ -12,7 +12,8 @@
 #include <stdio.h>
 #include "app.h"
 #include "deliver.h"
-#include "desk.h"
+#include "activate.h"
+#include "gs_desk.h"
 #include "engine.h"
 #include "history.h"
 #include "hotkeys.h"
@@ -144,8 +145,8 @@ static void instance_args(int argc, char **argv) {
 // The desktop's key grabs, as src/hotkeys.c asks for them. Grabbing can wait for the main thread
 // (macOS), so the lock is let go meanwhile; hotkeys.c keeps its changes from overlapping.
 static int grab(const char *accelerator, int name, char *error, size_t error_size) {
-    eh_accelerator a;
-    if (!eh_accelerator_parse(accelerator, &a, error, error_size)) return 2;
+    gs_accelerator a;
+    if (!gs_accelerator_parse(accelerator, &a, error, error_size)) return 2;
     int slot = -1;
     for (int i = 0; i < (int)SDL_arraysize(R.grabbed); i++) {
         if (!SDL_strcmp(R.grabbed[i].accelerator, accelerator)) return 1;  // held already, as another hotkey
@@ -157,7 +158,7 @@ static int grab(const char *accelerator, int name, char *error, size_t error_siz
     R.grabbed[slot].name = -1;
     bool ok;
     char why[256];
-    EH_AWAIT(ok = eh_hotkey_register(slot + 1, &a, why, sizeof why));
+    EH_AWAIT(ok = gs_hotkey_register(slot + 1, &a, why, sizeof why));
     if (ok) R.grabbed[slot].name = name;
     else R.grabbed[slot].accelerator[0] = 0;
     return ok ? 0 : 1;
@@ -167,7 +168,7 @@ static void ungrab(const char *accelerator) {
     for (int i = 0; i < (int)SDL_arraysize(R.grabbed); i++) {
         if (SDL_strcmp(R.grabbed[i].accelerator, accelerator)) continue;
         R.grabbed[i].name = -1;
-        EH_AWAIT(eh_hotkey_unregister(i + 1));
+        EH_AWAIT(gs_hotkey_unregister(i + 1));
         R.grabbed[i].accelerator[0] = 0;
     }
 }
@@ -327,8 +328,8 @@ int eh_run(int argc, char **argv) {
     const char *data = eh_data_dir();
     SDL_CreateDirectory(data);
     // One instance. A later one hands over what it was asked to do and leaves.
-    if (!smoke && !eh_instance_acquire(data, instance_args)) {
-        if (!eh_instance_forward(data, argc - 1, argv + 1)) { fprintf(stderr, "earheart: another instance is running and did not answer\n"); return 1; }
+    if (!smoke && !gs_instance_acquire(data, instance_args)) {
+        if (!gs_instance_forward(data, argc - 1, argv + 1)) { fprintf(stderr, "earheart: another instance is running and did not answer\n"); return 1; }
         return 0;
     }
     if (forwardable && !smoke) fprintf(stderr, "earheart: no instance was running; started one\n");
@@ -354,7 +355,7 @@ int eh_run(int argc, char **argv) {
     char error[256];
     static const eh_hotkey_backend desktop = { grab, ungrab };
     eh_hotkeys_backend(&desktop);
-    R.hotkeys = eh_hotkeys_init(hotkey_fired, error, sizeof error);
+    R.hotkeys = gs_hotkeys_init(hotkey_fired, error, sizeof error);
     if (!R.hotkeys) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "no global hotkeys here (%s): bind a system shortcut to `earheart --toggle`", error);
     eh_unlock();
     for (int i = 1; i < argc; i++) R.hidden = R.hidden || !SDL_strcmp(argv[i], "--hidden");

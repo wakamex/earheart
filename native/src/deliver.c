@@ -5,26 +5,27 @@
 // clipboard itself is touched on the main thread, which SDL requires.
 #include "deliver.h"
 #include <SDL3/SDL.h>
-#include "desk.h"
+#include "activate.h"
+#include "gs_desk.h"
 #include "loop.h"
 
 #define RESTORE_WINDOW_MS 1000  // how long after the keystroke the old clipboard is put back
 
 static struct {
     unsigned timer;
-    eh_clip *snap;  // the contents a pending restore will put back
+    gs_clip *snap;  // the contents a pending restore will put back
     char *text;     // and the transcript that replaced them
 } D;
 
 /* ---------------- on the main thread ---------------- */
 
-typedef struct { const char *text; eh_clip *snap; bool take, restore, ok; } clipboard_job;
+typedef struct { const char *text; gs_clip *snap; bool take, restore, ok; } clipboard_job;
 
 static void clipboard_main(void *user) {
     clipboard_job *j = user;
     // NULL when there is nothing to capture, so the caller skips the restore and never overwrites
     // the user's contents with nothing.
-    if (j->take) j->snap = eh_clipboard_snapshot();
+    if (j->take) j->snap = gs_clipboard_snapshot();
     if (j->restore) {
         // Only when the clipboard still holds the transcript: if the user copied something else
         // meanwhile, that is theirs.
@@ -32,9 +33,9 @@ static void clipboard_main(void *user) {
         bool unchanged = now && !SDL_strcmp(now, j->text);
         SDL_free(now);
         if (unchanged) {
-            eh_clip *s = j->snap;
+            gs_clip *s = j->snap;
             j->snap = NULL;
-            if (!eh_clipboard_restore(s)) SDL_Log("clipboard restore failed: %s", SDL_GetError());
+            if (!gs_clipboard_restore(s)) SDL_Log("clipboard restore failed: %s", SDL_GetError());
         }
         return;
     }
@@ -43,15 +44,15 @@ static void clipboard_main(void *user) {
 
 static void on_main(clipboard_job *j) { EH_AWAIT(SDL_RunOnMainThread(clipboard_main, j, true)); }
 
-static void restore_if_unchanged(eh_clip *snap, const char *text) {
+static void restore_if_unchanged(gs_clip *snap, const char *text) {
     clipboard_job j = { .text = text, .snap = snap, .restore = true };
     on_main(&j);
-    eh_clipboard_free(j.snap);  // not restored: the copy is dropped
+    gs_clipboard_free(j.snap);  // not restored: the copy is dropped
 }
 
 static void restore_task(void *user) {
     D.timer = 0;
-    eh_clip *snap = D.snap;
+    gs_clip *snap = D.snap;
     char *text = D.text;
     D.snap = NULL;
     D.text = NULL;
@@ -72,10 +73,10 @@ bool eh_deliver(const char *text, const eh_jv *output, eh_signal *signal, eh_del
     bool paste_only = !SDL_strcmp(mode, "paste"), pasting = paste_only || !SDL_strcmp(mode, "paste-copy");
     clipboard_job j = { .text = text, .take = paste_only && eh_jv_boolean(eh_jv_get(output, "restoreClipboard"), true) };
     on_main(&j);
-    eh_clip *previous = j.snap;
+    gs_clip *previous = j.snap;
     if (!j.ok) {
         SDL_snprintf(error, error_size, "The clipboard could not be written: %s", SDL_GetError());
-        eh_clipboard_free(previous);
+        gs_clipboard_free(previous);
         return false;
     }
     SDL_strlcpy(result->method, "clipboard", sizeof result->method);
@@ -89,20 +90,20 @@ bool eh_deliver(const char *text, const eh_jv *output, eh_signal *signal, eh_del
         return true;
     }
     char detail[256] = "";
-    eh_paste_result sent;
-    EH_AWAIT(sent = eh_paste_keystroke(detail, sizeof detail));
-    if (sent != EH_PASTE_SENT) {
+    gs_paste_result sent;
+    EH_AWAIT(sent = gs_paste_keystroke(detail, sizeof detail));
+    if (sent != GS_PASTE_SENT) {
         // The text stays on the clipboard, so the snapshot is not put back over it.
-        eh_clipboard_free(previous);
+        gs_clipboard_free(previous);
         if (eh_signal_aborted(signal)) { SDL_strlcpy(result->method, "cancelled", sizeof result->method); return true; }
         const char *note, *hint;
-        if (sent == EH_PASTE_NOT_PERMITTED) {
+        if (sent == GS_PASTE_NOT_PERMITTED) {
             // Asked once a run: the system's prompt leads to the switch in System Settings.
             static bool asked;
-            if (!asked) { asked = true; eh_paste_ask_permission(); }
+            if (!asked) { asked = true; gs_paste_ask_permission(); }
             note = "Accessibility permission is off";
             hint = "Accessibility is off for Earheart (an update can reset it) — Settings ▸ General ▸ Fix auto-paste permission";
-        } else if (sent == EH_PASTE_NO_TOOL) {
+        } else if (sent == GS_PASTE_NO_TOOL) {
             note = "No keystroke tool found";
             hint = "Install wtype, ydotool or xdotool for auto-paste; until then, paste with Ctrl+V";
         } else {
@@ -120,7 +121,7 @@ bool eh_deliver(const char *text, const eh_jv *output, eh_signal *signal, eh_del
         return true;
     }
     if (eh_signal_aborted(signal)) {
-        eh_clipboard_free(previous);
+        gs_clipboard_free(previous);
         SDL_strlcpy(result->method, "cancelled", sizeof result->method);
         return true;
     }
