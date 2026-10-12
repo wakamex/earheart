@@ -53,12 +53,11 @@ bool eh_ui_stop_rect(eh_ui *ui, const char *id, gs_rect *r);
 bool eh_ui_stop_paged(eh_ui *ui, const char *id);  // it is on the scrolling page
 const char *eh_ui_focus_name(eh_ui *ui);  // "" when nothing has the keyboard
 
-// The window's one scrolling page. `content_h` is the height the page turned out to have the last
-// time it was laid out. Returns the y at which the page's top is to be drawn; controls drawn until
-// eh_scroll_end are clipped to `area`, and those outside it cannot be clicked.
-float eh_scroll_begin(eh_ui *ui, gs_rect area, float content_h);
+// The window's one scrolling page, which measures itself. Returns the y at which the page's top is
+// to be drawn; controls drawn until eh_scroll_end are clipped to `area`, and those outside it
+// cannot be clicked.
+float eh_scroll_begin(eh_ui *ui, gs_rect area);
 void eh_scroll_end(eh_ui *ui, float bottom);  // bottom: the y at which the page's content ended
-void eh_scroll_reclip(eh_ui *ui);  // after a clip of the caller's own inside the page: the page's clip again
 float eh_scroll_y(eh_ui *ui);
 void eh_scroll_to(eh_ui *ui, float y, bool glide);
 

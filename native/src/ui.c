@@ -199,7 +199,7 @@ int eh_ui_end(eh_ui *ui) {
 
 /* ---------------- the page ---------------- */
 
-float eh_scroll_begin(eh_ui *ui, gs_rect area, float content_h) {
+float eh_scroll_begin(eh_ui *ui, gs_rect area) {
     ui->paging = true;
     return gs_ui_page_begin(ui->gs, area, PAGE).y;
 }
@@ -209,7 +209,6 @@ void eh_scroll_end(eh_ui *ui, float bottom) {
     ui->paging = false;
 }
 
-void eh_scroll_reclip(eh_ui *ui) {}
 float eh_scroll_y(eh_ui *ui) { return gs_ui_page_scroll(ui->gs, PAGE); }
 void eh_scroll_to(eh_ui *ui, float y, bool glide) { gs_ui_page_scroll_to(ui->gs, PAGE, y, glide); }
 

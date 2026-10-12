@@ -7,6 +7,7 @@
 #include "app.h"
 #include "correction_window.h"
 #include "deliver.h"
+#include "history.h"
 #include "gs_desk.h"
 #include "hotkeys.h"
 #include "gs_json.h"
@@ -185,6 +186,12 @@ int eh_cmd_settings_smoke(int argc, char **argv) {
     if (!begin("settings-smoke")) return 1;
     settings_target();
 
+    // Two saved transcripts, one long enough to be cut at three lines: the history has rows.
+    eh_lock();
+    eh_history_add("a short one", "A short one.", true, false, 10);
+    eh_history_add("long", "This transcript goes on for long enough that the history shows only its first three lines until it is opened, so it says the same thing several times over: this transcript goes on for long enough that the history shows only its first three lines until it is opened, and once more, this transcript goes on for long enough that the history shows only its first three lines until it is opened, and a last time so that it is surely more than three lines at any width the window has.", false, false, 10);
+    eh_unlock();
+
     // The window opens on General with its six sections in the index, and an untouched draft is
     // the settings it was filled from.
     eh_settings_window_open(NULL);
@@ -240,6 +247,22 @@ int eh_cmd_settings_smoke(int argc, char **argv) {
     IS("section", "advanced");
     for (int i = 0; i < 60; i++) wheel(PAGE_GUTTER_X, (float)h / 2, 3);
     IS("section", "general");
+
+    // History: rows with their buttons, a long one opened and closed, and what comes after the
+    // rows still there to be used.
+    CHECK(has("history-copy-0") && has("history-copy-1") && has("history-correct-0") && has("history-more-0") && !has("history-more-1") && has("history-original-1"));
+    // (Measured from the Clear history button above the rows, which scrolling moves with them.)
+    gs_rect top, row;
+    CHECK(reveal("history-more-0", &row));
+    CHECK(eh_ui_stop_rect(ui(), "history-clear", &top) && eh_ui_stop_rect(ui(), "history-copy-0", &row));
+    float closed = row.y - top.y;
+    CHECK(click("history-more-0"));
+    CHECK(eh_ui_stop_rect(ui(), "history-clear", &top) && eh_ui_stop_rect(ui(), "history-copy-0", &row) && row.y - top.y > closed + 10);
+    CHECK(click("history-more-0"));
+    CHECK(eh_ui_stop_rect(ui(), "history-clear", &top) && eh_ui_stop_rect(ui(), "history-copy-0", &row) && SDL_fabsf(row.y - top.y - closed) < 1);
+    if (SDL_getenv("EARHEART_SMOKE_VERBOSE")) printf("  history row closed at %.2f, was %.2f\n", row.y - top.y, closed);
+    CHECK(click("max-seconds") && !SDL_strcmp(eh_ui_focus_name(ui()), "max-seconds"));
+    for (int i = 0; i < 60; i++) wheel(PAGE_GUTTER_X, (float)h / 2, 3);
 
     // A hotkey field: a click arms it, Escape lets go with nothing changed, a combination fills it,
     // a key without a modifier does not, and Clear empties it.

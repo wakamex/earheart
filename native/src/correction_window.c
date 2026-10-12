@@ -39,7 +39,6 @@ static struct {
     int undo_count;
     bool busy, copied, close_now;
     int asking;  // the open question is about closing with a draft
-    float content_h;
 } C;
 
 static void find_words(void) {
@@ -364,9 +363,8 @@ int eh_correction_window_frame(void) {
             }
         }
         gs_rect inner = gs_inset(box, 10);
-        float top = eh_scroll_begin(C.ui, box, C.content_h);
+        float top = eh_scroll_begin(C.ui, box);
         float h = words_view((gs_rect){ inner.x, top + 10, inner.w, 0 }, focused);
-        if (SDL_fabsf(h + 20 - C.content_h) > 0.5f) C.content_h = h + 20, eh_ui_again(C.ui, 0);
         eh_scroll_end(C.ui, top + h + 20);
     }
     y = box.y + box.h + 8;

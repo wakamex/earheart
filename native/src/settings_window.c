@@ -1063,20 +1063,23 @@ static void history(void) {
         // Three lines, unless the row was opened.
         float line = gs_ui_line_height(eh_ui_gs(W.ui), 13), full = eh_w_text_height(W.ui, body, 13, pg.w), shown = W.expanded & 1u << row ? full : SDL_min(full, line * 3);
         if (on_screen(pg.y, shown)) {
-            // The row's clip, kept inside the page's.
-            float clip_top = SDL_max(pg.y, W.view_top), clip_bottom = SDL_min(pg.y + shown, W.view_bottom);
-            gs_rect clip = { pg.x, clip_top, pg.w, SDL_max(0, clip_bottom - clip_top) };
-            gs_ui_clip(eh_ui_gs(W.ui), &clip);
-            eh_w_text(W.ui, (gs_rect){ pg.x, pg.y, pg.w, full }, body, 13, gs_rgba(EH_TEXT, 1));
-            eh_scroll_reclip(W.ui);
+            bool open = (W.expanded & 1u << row) != 0;
+            if (open) eh_w_text(W.ui, (gs_rect){ pg.x, pg.y, pg.w, full }, body, 13, gs_rgba(EH_TEXT, 1));
+            else gs_ui_text_lines(eh_ui_gs(W.ui), (gs_rect){ pg.x, pg.y, pg.w, shown }, body, 13, gs_rgba(EH_TEXT, 1), 3, NULL);
         }
         pg.y += shown + 6;
-        gs_rect meta = take(30);
+        // When it was said, beside the row's buttons where both fit and on a line above them
+        // where they do not.
         when_text(when, sizeof when, item);
-        eh_w_line(W.ui, meta, when, 12, gs_rgba(EH_TEXT_DIM, 1), -1);
+        bool has_original = gs_jval_boolean(gs_jval_get(item, "cleaned"), false) && raw && SDL_strcmp(raw, body);
+        float buttons = eh_w_button_width(W.ui, "Copy") + eh_w_button_width(W.ui, "Correct…") + 16 + (has_original ? eh_w_button_width(W.ui, "Copy original") + 8 : 0) + (full > line * 3 + 1 ? eh_w_button_width(W.ui, "Show more") + 8 : 0);
+        bool beside = gs_ui_text_width(eh_ui_gs(W.ui), when, 12) + 16 + buttons <= pg.w;
+        if (!beside) eh_w_line(W.ui, take(22), when, 12, gs_rgba(EH_TEXT_DIM, 1), -1);
+        gs_rect meta = take(30);
+        if (beside) eh_w_line(W.ui, meta, when, 12, gs_rgba(EH_TEXT_DIM, 1), -1);
         float x = meta.x + meta.w;
 #define ROW_BUTTON(ID, LABEL) (SDL_snprintf(id, sizeof id, "history-%s-%d", ID, row), x -= eh_w_button_width(W.ui, LABEL) + 8, eh_w_button(W.ui, (gs_rect){ x + 8, meta.y, eh_w_button_width(W.ui, LABEL), 30 }, id, LABEL, EH_BTN_PLAIN))
-        if (gs_jval_boolean(gs_jval_get(item, "cleaned"), false) && raw && SDL_strcmp(raw, body))
+        if (has_original)
             if (ROW_BUTTON("original", copied && W.copied_row == row && W.copied_kind == 1 ? "Copied" : "Copy original")) copy_start(raw, row, 1);
         if (ROW_BUTTON("correct", "Correct…")) {
             SDL_free(W.correct);
@@ -1244,7 +1247,7 @@ int eh_settings_window_frame(void) {
 
     // The page.
     W.view_top = area.y, W.view_bottom = area.y + area.h;
-    float top = eh_scroll_begin(W.ui, area, W.content_h);
+    float top = eh_scroll_begin(W.ui, area);
     pg.x = area.x + 24, pg.w = SDL_min(area.w - 48, 640), pg.y = top + 18;
     if (W.wizard_banner) {
         card_begin(NULL);
