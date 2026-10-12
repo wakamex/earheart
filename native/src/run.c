@@ -13,9 +13,11 @@
 #include "app.h"
 #include "deliver.h"
 #include "gs_desk.h"
+#include "gs_notify.h"
 #include "engine.h"
 #include "history.h"
 #include "hotkeys.h"
+#include "icon_app.h"
 #include "icons.h"
 #include "loop.h"
 #include "overlay.h"
@@ -42,6 +44,10 @@ static struct {
     SDL_AtomicInt ready;
     SDL_AtomicInt early;    // one bit per action
     bool hidden, announce, open_settings;
+    // Notices waiting for the main thread to show them, and whether the desktop can show any.
+    bool notifications;
+    struct { char title[96], body[400]; bool critical; } notices[8];
+    int notice_count;
 } R;
 
 /* ---------------- the log ---------------- */
@@ -106,11 +112,40 @@ static void act(void *user) {
 static void spawn_action(action a) { eh_spawn(act, (void *)(intptr_t)a); }
 
 // Tells the main thread to do something that is its own to do: 1 rebuild the tray, 2 open the
-// settings, 3 open the wizard, 4 open the correction editor on the last transcript.
+// settings, 3 open the wizard, 4 open the correction editor on the last transcript, 5 show the
+// notices waiting.
 static void wake(int what) {
     SDL_Event e = { .user = { .type = R.refresh_event, .code = what } };
     SDL_PushEvent(&e);
 }
+
+/* ---------------- notices ---------------- */
+
+// With the lock held, from any task: a notice for the user, shown by the main thread. A critical
+// one is about something that stops dictation; where it cannot be shown the settings open instead.
+static void notice(const char *title, const char *body, bool critical) {
+    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s: %s", title, body);
+    if (R.notice_count == (int)SDL_arraysize(R.notices)) return;
+    SDL_strlcpy(R.notices[R.notice_count].title, title, sizeof R.notices[0].title);
+    SDL_strlcpy(R.notices[R.notice_count].body, body, sizeof R.notices[0].body);
+    R.notices[R.notice_count++].critical = critical;
+    wake(5);
+}
+
+// On the main thread. A click on any of them opens the settings, as does one that cannot be shown
+// (main/setup-notices.js).
+static void show_notices(void) {
+    eh_lock();
+    int count = R.notice_count;
+    R.notice_count = 0;
+    bool open = false;
+    for (int i = 0; i < count; i++)
+        if (!R.notifications || !gs_notify_show(R.notices[i].title, R.notices[i].title, R.notices[i].body)) open = true;
+    eh_unlock();
+    if (open) eh_settings_window_open(NULL);
+}
+
+static void notice_clicked(const char *tag) { wake(2); }
 
 // A hotkey was pressed: which one is looked up under the lock, where the table is kept.
 static void fired(void *user) {
@@ -187,12 +222,29 @@ static void apply_hotkeys(void) {
 static void startup(void *user) {
     apply_hotkeys();
     if (!R.announce) return;
-    int open = 0;
-    if (!R.hidden && eh_settings_first_run()) open = 3;
-    else if (R.open_settings || (!R.hidden && R.hotkeys && !eh_hotkeys_status(EH_HK_RECORD).ok)) open = 2;
-    if (!open) return;
-    SDL_Event e = { .user = { .type = R.refresh_event, .code = open } };
-    SDL_PushEvent(&e);
+    eh_hotkey_result record = eh_hotkeys_status(EH_HK_RECORD);
+    eh_stt_readiness ready = eh_stt_ready(gs_jval_get(eh_settings(), "stt"));
+    char body[400];
+    if (!R.hidden && eh_settings_first_run()) {
+        wake(3);
+    } else if (R.hotkeys && !record.ok) {
+        // The one thing dictation cannot do without: said where it will be seen.
+        static const char suffix[] = " Click to open Settings.";
+        SDL_snprintf(body, sizeof body, "%.*s%s", 180 - (int)sizeof suffix + 1, record.error, suffix);
+        if (R.hidden) notice("Earheart: hotkey not working", body, true);
+        else wake(2);
+    } else if (!ready.ok) {
+        if (ready.unknown) SDL_strlcpy(body, "The selected speech model isn't available. Choose one in Settings → Speech-to-text. Click to open Settings.", sizeof body);
+        else SDL_snprintf(body, sizeof body, "Download “%s” in Settings → Speech-to-text before dictating. Click to open Settings.", ready.label);
+        notice(ready.unknown ? "Earheart: no speech model available" : "Earheart: speech model not downloaded", body, true);
+    } else if (!R.hidden && !R.open_settings) {
+        char combo[96];
+        gs_accelerator_label(eh_setting_str("hotkey"), combo, sizeof combo);
+        if (combo[0]) SDL_snprintf(body, sizeof body, "Press %s to dictate.", combo);
+        else SDL_strlcpy(body, "Open the tray menu to get started.", sizeof body);
+        notice("Earheart is ready", body, false);
+    }
+    if (R.open_settings) wake(2);
 }
 
 /* ---------------- the tray ---------------- */
@@ -266,8 +318,7 @@ static SDL_Surface *icon_surface(const unsigned char *png, int len) {
 // thread's, so it is only told to look again.
 static void observer(const char *kind, const char *a, const char *b, double number, const gs_jval *detail) {
     if (!SDL_strcmp(kind, "notify")) {
-        // Until there are desktop notifications, the log holds them.
-        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s: %s", a, b);
+        notice(a, b, number != 0);
     } else if (!SDL_strcmp(kind, "status")) {
         SDL_Log("status: %s%s%s", a, gs_jval_get(detail, "message") ? ": " : "", gs_jval_string(gs_jval_get(detail, "message"), ""));
     } else if (!SDL_strcmp(kind, "state")) {
@@ -375,6 +426,14 @@ int eh_run(int argc, char **argv) {
     SDL_Log("Earheart %s started; data in %s", EARHEART_VERSION, data);
 
     eh_overlay_init();
+    if (!smoke) {
+        // The icon beside the notifications is a file's: the app's own, written out once.
+        char icon[1300];
+        SDL_snprintf(icon, sizeof icon, "%s" EH_SEP "icon.png", data);
+        if (!SDL_GetPathInfo(icon, NULL)) SDL_SaveFile(icon, icon_app, sizeof icon_app);
+        R.notifications = gs_notify_init("Earheart", "dev.wakamex.earheart", icon, notice_clicked);
+        if (!R.notifications) SDL_Log("no desktop notifications here: notices go to this log, and one that matters opens the settings");
+    }
     int status = 0;
     if (smoke) {
         // Everything is started; the queue is emptied once, then the engines are checked when asked.
@@ -399,6 +458,7 @@ int eh_run(int argc, char **argv) {
                     if (e.type == R.refresh_event && e.user.code == 2) eh_settings_window_open(NULL);
                     if (e.type == R.refresh_event && e.user.code == 3) eh_wizard_window_open();
                     if (e.type == R.refresh_event && e.user.code == 4) correct_last();
+                    if (e.type == R.refresh_event && e.user.code == 5) show_notices();
                     if (!eh_overlay_event(&e) && !eh_settings_window_event(&e) && !eh_wizard_window_event(&e)) eh_correction_window_event(&e);
                 } while (SDL_PollEvent(&e));
             }

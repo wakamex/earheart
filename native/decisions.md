@@ -97,9 +97,9 @@ A build made on the development host needs that host's glibc (2.43) and does not
 
 SDL's tray loads `libayatana-appindicator` at run time and fails without it ("Could not load AppIndicator libraries"), as on the Fedora development host and on GitHub's Ubuntu runners. The app then runs without a tray, driven by its hotkeys and by `earheart --toggle`. Electron's tray speaks the StatusNotifierItem protocol itself. This is on gesso's list.
 
-### Notifications go to the log for now (M2, 2026-10-11)
+### Notices are desktop notifications, and the settings where there are none (2026-10-12)
 
-The pipeline's notices (cleanup failed, transcription interrupted, auto-paste failed, model not downloaded) are written to `earheart.log` until desktop notifications exist, which the plan brings forward ahead of delivery.
+The notices of `main/setup-notices.js` and the pipeline's are shown through gesso's `gs_notify`: "Earheart is ready" with the hotkey on a start that is not hidden, the speech model missing or unknown, the record hotkey refused on a hidden start, and what the pipeline reports while dictating. A click on any of them opens the settings. Where the desktop cannot show one (no notification service, or a bare executable on macOS) the settings window opens in its place, as the Electron build does, and every notice is in the log either way. They are queued by whichever task raises them and shown by the main thread.
 
 ## Measurements
 
