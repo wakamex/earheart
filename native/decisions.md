@@ -101,6 +101,8 @@ SDL's tray loads `libayatana-appindicator` at run time and fails without it ("Co
 
 The notices of `main/setup-notices.js` and the pipeline's are shown through gesso's `gs_notify`: "Earheart is ready" with the hotkey on a start that is not hidden, the speech model missing or unknown, the record hotkey refused on a hidden start, and what the pipeline reports while dictating. A click on any of them opens the settings. Where the desktop cannot show one (no notification service, or a bare executable on macOS) the settings window opens in its place, as the Electron build does, and every notice is in the log either way. They are queued by whichever task raises them and shown by the main thread.
 
+Seen working on the rented Mac (macOS 26, the signed bundle): the system asked once for leave to notify, and after it was given a start showed "Earheart is ready — Press Cmd+Shift+Space to dictate." in the Notification Centre, and a click on it opened the settings window in front. The notice raised before the leave was given was dropped by the system, as gesso documents. On the Linux host, which has no notification service, a start that is not hidden opened the settings window in the notice's place. Not yet seen on a screen: Windows, and a Linux desktop with a notification service.
+
 ## Measurements
 
 ### M0: the Electron build, v0.39.0 (2026-10-11)
