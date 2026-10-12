@@ -67,3 +67,5 @@ The app now uses gs_ui's controls (src/ui.c is the window, the colours, the butt
 29. A text area inside a page takes the wheel while the pointer is over it even when it cannot scroll (short text, or already at its end), so a settings page stops scrolling when the pointer reaches the dictionary box. Passing the wheel on when the inner control has nowhere to go would match what browsers do.
 30. gs_ui_confirm's two buttons cannot be clicked by a test that looks controls up by name; the app's tests answer with the keyboard. A way to ask where a named control is would let tests of any gs_ui app click things.
 
+
+Update, 2026-10-12, on gesso b9d72d9: items 27 to 30 are answered and in use. `zig build bundle -Didentity="Earheart Dev"` runs gesso's bundle script from the package and the result is signed and launches on the Mac; the settings window comes forward as the key window through gs_window_activate on the Mac's screen (macOS 26); the settings test turns the wheel over the dictionary box and the page moves. gs_ui_where is not used yet: the app's tests still keep their own list of controls, because they also ask how many there are and which are on the page.
