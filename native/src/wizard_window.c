@@ -7,7 +7,6 @@
 #include "catalog.h"
 #include "commit.h"
 #include "defaults.h"
-#include "activate.h"
 #include "gs_desk.h"
 #include "fonts.h"
 #include "gs_draw.h"
@@ -453,8 +452,7 @@ void eh_wizard_window_open(void) {
         Z.saving = false;
     }
     SDL_ShowWindow(eh_ui_window(Z.ui));
-    SDL_RaiseWindow(eh_ui_window(Z.ui));
-    eh_app_activate();
+    gs_window_activate(eh_ui_window(Z.ui));  // to the front with the keyboard, which on macOS takes making the app active
 }
 
 bool eh_wizard_window_is_open(void) { return Z.ui != NULL; }

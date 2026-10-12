@@ -83,7 +83,7 @@ These are gesso's `gs_desk` (gesso pinned at `341834b`). They were written in th
 
 ### macOS: a bundle, a background app, and a named signing identity (M2, 2026-10-11)
 
-`tools/bundle-macos.sh` makes `Earheart.app`: the executable and its engines, an `Info.plist` with the microphone usage string and `LSUIElement`, the icon set, and a signature. SDL also has to be told the app is a background one (`SDL_HINT_MAC_BACKGROUND_APP`), or it puts it in the Dock regardless.
+`zig build bundle -Didentity=NAME` makes `Earheart.app` with gesso's bundle script: the executable and its engines, an `Info.plist` with the microphone usage string and `LSUIElement`, the icon set, and a signature. SDL also has to be told the app is a background one (`SDL_HINT_MAC_BACKGROUND_APP`), or it puts it in the Dock regardless.
 
 macOS files the Accessibility grant under the app's designated requirement. An ad hoc signature gives each build a new one, and the grant was lost on the first rebuild. Signed with a self-signed certificate the requirement is `identifier "dev.wakamex.earheart" and certificate leaf = H"…"`, the same on every build, which is the arrangement `CONTRIBUTING.md` describes for the Electron build.
 

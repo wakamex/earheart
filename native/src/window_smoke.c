@@ -7,7 +7,6 @@
 #include "app.h"
 #include "correction_window.h"
 #include "deliver.h"
-#include "activate.h"
 #include "gs_desk.h"
 #include "hotkeys.h"
 #include "gs_json.h"
@@ -231,6 +230,13 @@ int eh_cmd_settings_smoke(int argc, char **argv) {
     for (int i = 0; i < 40; i++) frames(1), SDL_Delay(5);
     IS("section", "general");
     for (int i = 0; i < 60; i++) wheel(PAGE_GUTTER_X, (float)h / 2, -3);
+    IS("section", "advanced");
+    for (int i = 0; i < 60; i++) wheel(PAGE_GUTTER_X, (float)h / 2, 3);
+    IS("section", "general");
+
+    // Over a text area with nothing of its own to scroll, the wheel still moves the page.
+    CHECK(reveal("cleanup-dictionary", &r));
+    for (int i = 0; i < 80; i++) wheel(r.x + 40, r.y + r.h / 2, -3);
     IS("section", "advanced");
     for (int i = 0; i < 60; i++) wheel(PAGE_GUTTER_X, (float)h / 2, 3);
     IS("section", "general");

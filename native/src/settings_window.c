@@ -12,7 +12,6 @@
 #include "correction_window.h"
 #include "defaults.h"
 #include "deliver.h"
-#include "activate.h"
 #include "gs_desk.h"
 #include "fonts.h"
 #include "gs_draw.h"
@@ -1189,8 +1188,7 @@ void eh_settings_window_open(const char *section) {
     for (int i = 0; section && i < SECTIONS; i++)
         if (!SDL_strcmp(section, section_ids[i])) W.section = i, eh_scroll_to(W.ui, SDL_max(0, W.section_y[i] - 12), false);
     SDL_ShowWindow(eh_ui_window(W.ui));
-    SDL_RaiseWindow(eh_ui_window(W.ui));
-    eh_app_activate();
+    gs_window_activate(eh_ui_window(W.ui));  // to the front with the keyboard, which on macOS takes making the app active
 }
 
 void eh_settings_window_open_from_wizard(void) {

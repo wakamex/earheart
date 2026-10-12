@@ -5,7 +5,6 @@
 // clipboard itself is touched on the main thread, which SDL requires.
 #include "deliver.h"
 #include <SDL3/SDL.h>
-#include "activate.h"
 #include "gs_desk.h"
 #include "loop.h"
 

@@ -12,7 +12,6 @@
 #include <stdio.h>
 #include "app.h"
 #include "deliver.h"
-#include "activate.h"
 #include "gs_desk.h"
 #include "engine.h"
 #include "history.h"

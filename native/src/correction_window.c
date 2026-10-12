@@ -10,7 +10,6 @@
 #include "correction_window.h"
 #include "commit.h"
 #include "deliver.h"
-#include "activate.h"
 #include "gs_desk.h"
 #include "fonts.h"
 #include "gs_draw.h"
@@ -241,8 +240,7 @@ bool eh_correction_window_open(const char *text, char *error, size_t error_size)
         // One draft at a time: another transcript does not replace it.
         if (text && *text && SDL_strcmp(text, C.original)) SDL_strlcpy(C.status, "Your current correction is still open. Copy or close it before opening another transcript.", sizeof C.status);
         SDL_ShowWindow(eh_ui_window(C.ui));
-        SDL_RaiseWindow(eh_ui_window(C.ui));
-    eh_app_activate();
+        gs_window_activate(eh_ui_window(C.ui));  // to the front with the keyboard, which on macOS takes making the app active
         return true;
     }
     eh_lock();
@@ -263,8 +261,7 @@ bool eh_correction_window_open(const char *text, char *error, size_t error_size)
     SDL_strlcpy(C.status, *C.text ? "" : "No saved transcript yet. Enable History and finish a dictation first.", sizeof C.status);
     eh_ui_focus(C.ui, "transcript");
     SDL_ShowWindow(eh_ui_window(C.ui));
-    SDL_RaiseWindow(eh_ui_window(C.ui));
-    eh_app_activate();
+    gs_window_activate(eh_ui_window(C.ui));  // to the front with the keyboard, which on macOS takes making the app active
     return true;
 }
 

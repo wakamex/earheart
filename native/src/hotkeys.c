@@ -1,6 +1,5 @@
 #include "hotkeys.h"
 #include <SDL3/SDL.h>
-#include "activate.h"
 #include "gs_desk.h"
 #include "loop.h"
 

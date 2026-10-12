@@ -17,12 +17,6 @@ pub fn build(b: *std.Build) void {
     const mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true, .strip = optimize != .debug });
     mod.addCSourceFiles(.{ .root = b.path("src"), .files = sources, .flags = flags });
     mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{ "main.c", "dictate.c", "deliver.c", "run.c", "settings_window.c", "window_smoke.c", "wizard_window.c", "correction_window.c" }, .flags = flags });
-    // Bringing the app forward when it shows a window: AppKit on macOS, nothing elsewhere.
-    mod.addCSourceFiles(.{ .root = b.path("src"), .files = &.{"activate.c"}, .flags = flags });
-    if (target.result.os.tag == .macos) {
-        mod.addCSourceFile(.{ .file = b.path("src/activate_macos.m"), .flags = &.{ "-fobjc-arc", "-Wall", "-Wextra", "-Wno-unused-parameter" } });
-        mod.linkFramework("AppKit", .{});
-    }
     mod.addIncludePath(b.path("vendor/include"));
     mod.addCMacro("EARHEART_VERSION", "\"" ++ zon.version ++ "\"");
     mod.linkLibrary(gesso);
@@ -58,4 +52,23 @@ pub fn build(b: *std.Build) void {
     // The prompt test opens the engines fetched for this target, when there are any.
     test_run.addDirectoryArg(b.path(b.fmt("engines/{s}-{s}", .{ @tagName(target.result.os.tag), if (target.result.cpu.arch == .aarch64) "arm64" else "x64" })));
     b.step("test", "Run the tests").dependOn(&test_run.step);
+
+    // zig build bundle [-Didentity=NAME]: zig-out/Earheart.app from what is installed in zig-out (the
+    // default prefix), made by gesso's script. On a Mac.
+    const identity = b.option([]const u8, "identity", "the certificate to sign the macOS bundle with, by its name in the keychain (ad hoc without one)");
+    const bundle = b.addSystemCommand(&.{"sh"});
+    bundle.setCwd(b.path("."));
+    bundle.addFileArg(b.dependency("gesso", .{}).path("tools/bundle-macos.sh"));
+    bundle.addArgs(&.{ "-n", "Earheart", "-i", "dev.wakamex.earheart", "-v", zon.version, "-b", "-u", "NSMicrophoneUsageDescription=Earheart records your voice while you dictate and transcribes it on this Mac." });
+    bundle.addArg("-e");
+    bundle.addArg("zig-out/bin/earheart");
+    bundle.addArg("-r");
+    bundle.addArg("zig-out/bin/engines");
+    bundle.addArg("-o");
+    bundle.addArg("zig-out");
+    bundle.addArg("-c");
+    bundle.addFileArg(b.path("../assets/icon.png"));
+    if (identity) |name| bundle.addArgs(&.{ "-s", name });
+    bundle.step.dependOn(b.getInstallStep());
+    b.step("bundle", "Make the macOS app bundle (on a Mac)").dependOn(&bundle.step);
 }
