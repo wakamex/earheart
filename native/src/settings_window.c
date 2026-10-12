@@ -648,7 +648,6 @@ static void general(void) {
     card_end();
 
     card_begin("Microphone");
-    label("Microphone");
     eh_w_select(W.ui, take(36), "mic-device", (const char *const *)W.mics, W.mic_count, &W.mic);
     hint("The input dictation records from. System default follows whatever your OS has selected.");
     if (W.mic_missing && W.mic == W.mic_count - 1) {
