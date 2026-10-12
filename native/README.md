@@ -1,20 +1,79 @@
 # Earheart, native
 
-This folder is a port of [Earheart](https://github.com/cleanunicorn/earheart) from [Electron](https://www.electronjs.org/) to one C program built on [gesso](https://github.com/wakamex/gesso), a small C library over [Simple DirectMedia Layer (SDL)](https://www.libsdl.org/). The goal of the fork is to offer the maintainer the same app, behaving the same way at Earheart v0.39.0, as a program that starts in a tenth of a second and waits in the tray in about 12 MiB where the Electron build takes 267 MiB. Whether to adopt it is his decision; the Electron build in the rest of this repository is untouched.
+This folder is a port of [Earheart](https://github.com/cleanunicorn/earheart) from [Electron](https://www.electronjs.org/) to one C program. The goal of the fork is to offer the maintainer the same app, behaving the same way at Earheart v0.39.0. Whether to adopt it is his decision; the Electron build in the rest of this repository is untouched.
 
 It runs on Linux (X11), macOS and Windows. Speech-to-text and cleanup use the same engine libraries the Electron build ships, loaded at run time, and the models the Electron build has already downloaded are used where they are.
 
-## Known gap: noisy rooms
+## Why port it
+
+Earheart waits in the tray all day and is used for a few seconds at a time: a hotkey, some speech, a paste. Its interface is a small overlay and three windows. The Electron build carries a whole browser for that. Idle, with no models loaded, it is seven processes holding 267 MiB, it takes over two seconds to start, and 312 MB of its Linux install is Chromium and Node. The work that makes it useful, turning speech into text and tidying the text, happens in two native libraries that do not need a browser around them.
+
+[gesso](https://github.com/wakamex/gesso) is a small C library on [Simple DirectMedia Layer (SDL)](https://www.libsdl.org/) for apps of this kind. It was built so that a desktop app can be one executable of a few megabytes that builds for Windows, macOS and Linux from one codebase, and it supplies what such an app cannot write for itself on top of SDL: text shaping and system fonts, text fields and a Tab order, HTTPS, JSON, and the desktop services Earheart leans on (global hotkeys, the paste keystroke, the clipboard, notifications, the system's key store). The app draws its own interface with it each frame, so the look of the Electron build could be copied screen by screen. Two apps were released on it before this one, [gtube](https://github.com/wakamex/gtube), a YouTube Music player, and [gstream](https://github.com/wakamex/gstream), a Twitch viewer, which use 22 to 26 MiB.
+
+## Measured against the Electron build
+
+The Electron figures are for the released v0.39.0 packages. The native figures are for an optimised build (`zig build --release=fast`) of this branch. Unless a row names another system, both were measured on the same Linux machine in a virtual display with no models loaded.
+
+### Size
+
+The Electron build's Linux package holds Electron, the app, the speech engine, and llama.cpp three times over: for the CPU, for Vulkan and for NVIDIA's CUDA. The native build holds its executable, the same speech engine, and llama.cpp once, in the build that covers the CPU and Vulkan. It has no installer yet, so its download figure is the executable and engines in a `tar.xz` archive.
+
+| Measure, Linux x64 (smaller is better) | Electron build | Native build |
+|---|---|---|
+| Download | 390 MB (deb) | 17 MB (archive) |
+| Installed | 1,059 MB | 97 MB |
+| of which Electron, or the native executable | 312 MB | 4.4 MB |
+| of which engine libraries | 740 MB | 93 MB |
+| of which CUDA libraries | 508 MB | none |
+
+Dropping CUDA accounts for 508 MB of the 962 MB saved, and it has a cost on NVIDIA cards: the native build reaches them through Vulkan. The macOS package has no CUDA; there the Electron build installs 411 MB, of which Electron is 276 MB.
+
+### Start-up and memory
+
+Memory is proportional set size summed over every process of the app, which counts shared pages once.
+
+| Measure (smaller is better) | Electron build | Native build |
+|---|---|---|
+| Processes while waiting in the tray | 7 | 1 |
+| Memory while waiting in the tray | 267 MiB | 10 MiB |
+| Memory with the settings window open | 313 MiB | 147 MiB |
+| Time to start the whole app and exit, three runs | 2.26 to 2.29 s | 0.03 to 0.10 s |
+| Peak memory of the main process during that start | 182 to 184 MB | 8 to 9 MB |
+
+The native figure with the settings window open is mostly the software OpenGL that a virtual display forces. On the Mac, drawing with Metal, the native build's footprint is 13 MB in the tray and 58 MB with the settings open; the Electron build was not measured there.
+
+With both default models loaded the Electron build totals 3,446 MiB, of which its own processes are 267 MiB and the two engine workers the rest. The native build runs the same engines in the same two workers and was not measured loaded, so the expected saving in a session with models in memory is the 257 MiB between the two tray figures, about 8% of the total.
+
+### Cleanup speed
+
+Cleanup is the step that rewrites a raw transcript into a tidy prompt with a local language model. Both builds were given the same inputs, styles and seeds, 20 cleans per model on the CPU and 5 on the GPU. The table gives median seconds per clean, where lower is better.
+
+| System | Model | Backend | Electron build | Native build |
+|---|---|---|---|---|
+| macOS | Gemma 3 1B | CPU, 6 threads | 2.40 | 2.36 |
+| macOS | Gemma 3 1B | Metal | 1.94 | 1.93 |
+| macOS | Qwen3 4B | CPU, 6 threads | 11.89 | 11.50 |
+| macOS | Qwen3 4B | Metal | 5.56 | 5.40 |
+| Windows | Gemma 3 1B | CPU, 8 threads | 8.42 | 5.21 |
+| Windows | Gemma 3 1B | Vulkan | 1.08 | 1.00 |
+| Windows | Qwen3 4B | CPU, 8 threads | 32.27 | 27.94 |
+| Windows | Qwen3 4B | Vulkan | 1.88 | 1.79 |
+
+The native build is 1% to 7% faster everywhere except the Windows CPU, where it is 13% to 38% faster: llama.cpp's own release picks a CPU backend for the processor at run time, and the Electron build's Windows package has one generic build. With Qwen3 4B, the default model, both builds keep a median 0.94 of the content words and leave no filler words.
+
+### Transcription accuracy
 
 The native build transcribes noisy audio worse than the Electron build. Chromium cleans up the microphone before the Electron build sees it (noise suppression, echo cancellation, automatic gain), and the native build records what the microphone delivers. On 40 clips of the [FLEURS](https://huggingface.co/datasets/google/fleurs) English test set played into the Electron build's own overlay and transcribed both ways with the same engine, the word error rate (WER, lower is better) was:
 
-| Condition | Native build | Electron build | Difference in points, with 95% interval |
+| Condition | Electron build | Native build | Native minus Electron in points, with 95% interval |
 |---|---|---|---|
-| Clip as recorded | 6.07% | 5.29% | 0.79 (-0.12 to 1.82) |
-| 20 dB quieter | 6.52% | 5.62% | 0.90 (-0.23 to 2.07) |
-| White noise 15 dB below the speech | 9.79% | 7.20% | 2.59 (0.34 to 5.32) |
+| Clip as recorded | 5.29% | 6.07% | 0.79 (-0.12 to 1.82) |
+| 20 dB quieter | 5.62% | 6.52% | 0.90 (-0.23 to 2.07) |
+| White noise 15 dB below the speech | 7.20% | 9.79% | 2.59 (0.34 to 5.32) |
 
-With noise in the room the native build is 2.59 points worse. On clean and quiet audio the difference leans the same way and its interval includes zero. A noise suppressor has not been tried yet; the method and the script are in [decisions.md](decisions.md) under M2.
+With noise in the room the native build is 2.59 points worse. On clean and quiet audio the difference leans the same way and its interval includes zero. A noise suppressor has not been tried yet.
+
+How each figure was taken, with the scripts, is in [decisions.md](decisions.md) under M0, M1, M2 and M5.
 
 ## Other differences from the Electron build
 
