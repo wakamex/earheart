@@ -235,3 +235,5 @@ bool eh_clipboard_restore(eh_clip *s) {
     eh_clipboard_free(s);
     return ok;
 }
+
+void eh_app_activate(void) {}

@@ -1188,6 +1188,7 @@ void eh_settings_window_open(const char *section) {
         if (!SDL_strcmp(section, section_ids[i])) W.section = i, eh_scroll_to(W.ui, SDL_max(0, W.section_y[i] - 12), false);
     SDL_ShowWindow(eh_ui_window(W.ui));
     SDL_RaiseWindow(eh_ui_window(W.ui));
+    eh_app_activate();
 }
 
 void eh_settings_window_open_from_wizard(void) {

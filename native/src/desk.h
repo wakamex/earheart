@@ -64,3 +64,8 @@ void eh_clipboard_free(eh_clip *snap);
 bool eh_instance_acquire(const char *data_dir, void (*on_args)(int argc, char **argv));
 // Hands the arguments to the running instance. False when there is none.
 bool eh_instance_forward(const char *data_dir, int argc, char **argv);
+
+/* ---------------- the app among the others ---------------- */
+// Brings the app forward so a window it just showed has the keyboard. Needed on macOS, where an
+// app without a Dock icon is not made active by showing a window; nothing elsewhere.
+void eh_app_activate(void);

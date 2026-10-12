@@ -452,6 +452,7 @@ void eh_wizard_window_open(void) {
     }
     SDL_ShowWindow(eh_ui_window(Z.ui));
     SDL_RaiseWindow(eh_ui_window(Z.ui));
+    eh_app_activate();
 }
 
 bool eh_wizard_window_is_open(void) { return Z.ui != NULL; }

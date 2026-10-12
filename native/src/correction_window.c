@@ -10,6 +10,7 @@
 #include "correction_window.h"
 #include "commit.h"
 #include "deliver.h"
+#include "desk.h"
 #include "draw.h"
 #include "gs_text.h"
 #include "loop.h"
@@ -239,6 +240,7 @@ bool eh_correction_window_open(const char *text, char *error, size_t error_size)
         if (text && *text && SDL_strcmp(text, C.original)) SDL_strlcpy(C.status, "Your current correction is still open. Copy or close it before opening another transcript.", sizeof C.status);
         SDL_ShowWindow(eh_ui_window(C.ui));
         SDL_RaiseWindow(eh_ui_window(C.ui));
+    eh_app_activate();
         return true;
     }
     eh_lock();
@@ -260,6 +262,7 @@ bool eh_correction_window_open(const char *text, char *error, size_t error_size)
     eh_ui_focus(C.ui, "transcript");
     SDL_ShowWindow(eh_ui_window(C.ui));
     SDL_RaiseWindow(eh_ui_window(C.ui));
+    eh_app_activate();
     return true;
 }
 
