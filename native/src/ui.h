@@ -15,10 +15,10 @@ enum {
     EH_INK = 0x18181b, EH_TEXT = 0xf4f4f5, EH_TEXT_DIM = 0xa1a1aa, EH_ACCENT = 0xfb4d5c, EH_OK = 0x34d399, EH_ERR = 0xf87171,
     EH_FIELD = 0x101013, EH_FIELD_EDGE = 0x6b6b74,
 };
-#define EH_EDGE eh_rgba(0xffffff, 0.1f)
-#define EH_WASH eh_rgba(0xffffff, 0.08f)
-#define EH_WASH_FAINT eh_rgba(0xffffff, 0.04f)
-#define EH_SEAM eh_rgba(0xffffff, 0.08f)
+#define EH_EDGE gs_rgba(0xffffff, 0.1f)
+#define EH_WASH gs_rgba(0xffffff, 0.08f)
+#define EH_WASH_FAINT gs_rgba(0xffffff, 0.04f)
+#define EH_SEAM gs_rgba(0xffffff, 0.08f)
 
 // A window with its renderer and controls, hidden until shown. NULL when the system gives none.
 eh_ui *eh_ui_new(const char *title, int w, int h, int min_w, int min_h);

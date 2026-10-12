@@ -12,7 +12,8 @@
 #include "deliver.h"
 #include "activate.h"
 #include "gs_desk.h"
-#include "draw.h"
+#include "fonts.h"
+#include "gs_draw.h"
 #include "gs_text.h"
 #include "loop.h"
 #include "pipeline.h"
@@ -223,10 +224,10 @@ static float words_view(gs_rect box, bool focused) {
         if (picked() && pick_start() < ln.end && pick_end() > ln.start) {
             int from = SDL_max(pick_start(), ln.start), to = SDL_min(pick_end(), ln.end);
             float x0 = box.x + width_of(C.text + ln.start, from - ln.start), x1 = box.x + width_of(C.text + ln.start, to - ln.start);
-            eh_w_round(C.ui, (gs_rect){ x0 - 2, y + 1, x1 - x0 + 4, line_h - 2 }, 4, eh_rgba(EH_TEXT, focused ? 0.28f : 0.18f));
+            eh_w_round(C.ui, (gs_rect){ x0 - 2, y + 1, x1 - x0 + 4, line_h - 2 }, 4, gs_rgba(EH_TEXT, focused ? 0.28f : 0.18f));
         }
         char *line = SDL_strndup(C.text + ln.start, (size_t)(ln.end - ln.start));
-        gs_ui_text(gs, (gs_rect){ box.x, y, box.w + 40, line_h }, line, 14, eh_rgba(EH_TEXT, 1), -1);
+        gs_ui_text(gs, (gs_rect){ box.x, y, box.w + 40, line_h }, line, 14, gs_rgba(EH_TEXT, 1), -1);
         SDL_free(line);
     }
     if (wrap) gs_wrap_free(wrap);
@@ -287,11 +288,11 @@ const char *eh_correction_window_text(const char *what) {
 }
 
 static void label(float x, float *y, float w, const char *s) {
-    eh_w_line(C.ui, (gs_rect){ x, *y, w, 20 }, s, 13, eh_rgba(EH_TEXT, 1), -1);
+    eh_w_line(C.ui, (gs_rect){ x, *y, w, 20 }, s, 13, gs_rgba(EH_TEXT, 1), -1);
     *y += 26;
 }
 
-static void hint(float x, float *y, float w, const char *s) { *y += eh_w_text(C.ui, (gs_rect){ x, *y, w, 100 }, s, 12, eh_rgba(EH_TEXT_DIM, 1)) + 10; }
+static void hint(float x, float *y, float w, const char *s) { *y += eh_w_text(C.ui, (gs_rect){ x, *y, w, 100 }, s, 12, gs_rgba(EH_TEXT_DIM, 1)) + 10; }
 
 int eh_correction_window_frame(void) {
     if (!C.ui) return -1;
@@ -318,14 +319,14 @@ int eh_correction_window_frame(void) {
     if (gs_ui_key(gs, SDLK_RETURN, SDL_KMOD_CTRL | SDL_KMOD_GUI) && !C.busy && !eh_ui_asking(C.ui)) copy();
 
     float x = 28, w = area.w - 56, y = 22;
-    eh_w_line(C.ui, (gs_rect){ x, y, w, 26 }, "Correct transcript", 18, eh_rgba(EH_TEXT, 1), -1);
+    eh_w_line(C.ui, (gs_rect){ x, y, w, 26 }, "Correct transcript", 18, gs_rgba(EH_TEXT, 1), -1);
     y += 34;
     hint(x, &y, w, "Pick a word or phrase, then enter its correct spelling. Your original stays in History.");
 
     // From the bottom up, so the transcript takes the room that is left.
     float bottom = area.h - 20;
     gs_rect last_hint = { x, bottom - 34, w, 34 };
-    eh_w_text(C.ui, last_hint, "Ctrl/Cmd+Enter copies the full prompt. Return to your agent and select the text you want to replace before pasting.", 12, eh_rgba(EH_TEXT_DIM, 1));
+    eh_w_text(C.ui, last_hint, "Ctrl/Cmd+Enter copies the full prompt. Return to your agent and select the text you want to replace before pasting.", 12, gs_rgba(EH_TEXT_DIM, 1));
     bottom -= 34 + 12;
     float copy_w = eh_w_button_width(C.ui, "Copy corrected prompt & close") + 12, close_w = eh_w_button_width(C.ui, "Close");
     gs_rect copy_r = { x + w - copy_w, bottom - 36, copy_w, 36 }, close_r = { x + w - copy_w - 10 - close_w, bottom - 36, close_w, 36 };
@@ -348,10 +349,10 @@ int eh_correction_window_frame(void) {
         // By hand: the replacements made before it can no longer be undone.
         if (eh_w_textarea(C.ui, box, "transcript-edit", C.text, TEXT_MAX, NULL)) clear_undo(), find_words();
     } else {
-        gs_ui_fill(gs, box, eh_rgba(EH_FIELD, 1));
+        gs_ui_fill(gs, box, gs_rgba(EH_FIELD, 1));
         int arrow = 0;
         bool shift = false, activated = false, focused = eh_ui_custom_stop(C.ui, "transcript", box, &arrow, &shift, &activated);
-        gs_ui_frame(gs, box, eh_rgba(focused ? EH_TEXT : EH_FIELD_EDGE, 1));
+        gs_ui_frame(gs, box, gs_rgba(focused ? EH_TEXT : EH_FIELD_EDGE, 1));
         // With the keyboard: the arrows move the pick a word at a time, Shift grows it.
         if (focused && arrow && C.word_count) {
             if (!picked()) pick(0, 0), C.anchor = 0;
@@ -379,7 +380,7 @@ int eh_correction_window_frame(void) {
     } else {
         SDL_strlcpy(picked_hint, C.editing ? "Change the transcript by hand, then choose Done editing to pick words again." : "Click a word, or drag across a phrase, then press Tab to correct it. The arrow keys pick too; Shift with them picks a phrase.", sizeof picked_hint);
     }
-    eh_w_line(C.ui, (gs_rect){ x, y, w, 18 }, picked_hint, 12, eh_rgba(EH_TEXT_DIM, 1), -1);
+    eh_w_line(C.ui, (gs_rect){ x, y, w, 18 }, picked_hint, 12, gs_rgba(EH_TEXT_DIM, 1), -1);
     y += hint_h;
 
     label(x, &y, w, "Correct spelling");
@@ -411,7 +412,7 @@ int eh_correction_window_frame(void) {
     y += 36 + 12;
     hint(x, &y, w, "Undo reverses replacements since your last direct edit. Already remembered spellings stay in your dictionary.");
     hint(x, &y, w, C.note);
-    if (C.status[0]) eh_w_text(C.ui, (gs_rect){ x, y, w, 60 }, C.status, 12, eh_rgba(EH_TEXT, 1));
+    if (C.status[0]) eh_w_text(C.ui, (gs_rect){ x, y, w, 60 }, C.status, 12, gs_rgba(EH_TEXT, 1));
 
     bool has_text = false;
     for (const char *p = C.text; *p && !has_text; p++) has_text = *p != ' ' && *p != '\n';

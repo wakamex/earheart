@@ -1,5 +1,6 @@
 #include "ui.h"
-#include "draw.h"
+#include "fonts.h"
+#include "gs_draw.h"
 #include "icon_app.h"
 #include "stb_image.h"
 
@@ -55,16 +56,16 @@ eh_ui *eh_ui_new(const char *title, int w, int h, int min_w, int min_h) {
     SDL_SetRenderVSync(ui->r, 1);
     ui->gs = gs_ui_new(ui->win, ui->r, eh_fonts());
     gs_ui_style *s = gs_ui_style_of(ui->gs);
-    s->background = eh_rgba(EH_INK, 1);
-    s->panel = eh_rgba(0x232327, 1);
-    s->raised = eh_rgba(EH_FIELD, 1);
-    s->text = eh_rgba(EH_TEXT, 1);
-    s->muted = eh_rgba(EH_TEXT_DIM, 1);
-    s->accent = eh_rgba(EH_TEXT, 1);  // a field with the keyboard has a white edge
-    s->accent_text = eh_rgba(EH_INK, 1);
-    s->border = eh_rgba(EH_FIELD_EDGE, 1);
-    s->warning = eh_rgba(EH_ERR, 1);
-    s->focus = eh_rgba(EH_TEXT, 0.9f);
+    s->background = gs_rgba(EH_INK, 1);
+    s->panel = gs_rgba(0x232327, 1);
+    s->raised = gs_rgba(EH_FIELD, 1);
+    s->text = gs_rgba(EH_TEXT, 1);
+    s->muted = gs_rgba(EH_TEXT_DIM, 1);
+    s->accent = gs_rgba(EH_TEXT, 1);  // a field with the keyboard has a white edge
+    s->accent_text = gs_rgba(EH_INK, 1);
+    s->border = gs_rgba(EH_FIELD_EDGE, 1);
+    s->warning = gs_rgba(EH_ERR, 1);
+    s->focus = gs_rgba(EH_TEXT, 0.9f);
     s->radius = 8;
     s->text_px = 13;
     s->small_px = 12;
@@ -175,7 +176,7 @@ void eh_ui_inert(eh_ui *ui, bool inert, bool dim) {
     gs_ui_disable(ui->gs, inert, dim);
 }
 
-SDL_FColor eh_ui_ink(eh_ui *ui, unsigned rgb, float alpha) { return eh_rgba(rgb, alpha); }
+SDL_FColor eh_ui_ink(eh_ui *ui, unsigned rgb, float alpha) { return gs_rgba(rgb, alpha); }
 
 gs_rect eh_ui_begin(eh_ui *ui) {
     ui->was_capturing = gs_ui_capturing(ui->gs);
@@ -241,16 +242,16 @@ bool eh_w_button(eh_ui *ui, gs_rect r, const char *id, const char *label, eh_btn
     bool hit = gs_ui_activated(ui->gs, r, id), hot = gs_ui_hovered(ui->gs, r);
     bool nav = kind == EH_BTN_NAV || kind == EH_BTN_NAV_ON, faded = ui->inert && !ui->dim;
     float radius = nav ? 8 : r.h / 2;
-    SDL_FColor text = eh_rgba(EH_TEXT, faded ? 0.5f : 1);
+    SDL_FColor text = gs_rgba(EH_TEXT, faded ? 0.5f : 1);
     if (kind == EH_BTN_PRIMARY) {
-        gs_ui_round(ui->gs, r, radius, eh_rgba(hot ? 0xffffff : EH_TEXT, faded ? 0.5f : 1));
-        text = eh_rgba(EH_INK, 1);
+        gs_ui_round(ui->gs, r, radius, gs_rgba(hot ? 0xffffff : EH_TEXT, faded ? 0.5f : 1));
+        text = gs_rgba(EH_INK, 1);
     } else if (nav) {
         if (kind == EH_BTN_NAV_ON || hot) gs_ui_round(ui->gs, r, radius, kind == EH_BTN_NAV_ON ? EH_WASH : EH_WASH_FAINT);
-        if (kind != EH_BTN_NAV_ON && !hot) text = eh_rgba(EH_TEXT_DIM, 1);
+        if (kind != EH_BTN_NAV_ON && !hot) text = gs_rgba(EH_TEXT_DIM, 1);
     } else {
-        gs_ui_round(ui->gs, r, radius, kind == EH_BTN_DANGER && hot ? eh_rgba(EH_ERR, 0.14f) : eh_rgba(0xffffff, hot ? 0.14f : 0.08f));
-        if (kind == EH_BTN_DANGER && hot) text = eh_rgba(EH_ERR, 1);
+        gs_ui_round(ui->gs, r, radius, kind == EH_BTN_DANGER && hot ? gs_rgba(EH_ERR, 0.14f) : gs_rgba(0xffffff, hot ? 0.14f : 0.08f));
+        if (kind == EH_BTN_DANGER && hot) text = gs_rgba(EH_ERR, 1);
     }
     if (nav) gs_ui_text(ui->gs, (gs_rect){ r.x + 12, r.y, r.w - 20, r.h }, label, 13, text, -1);
     else gs_ui_text(ui->gs, gs_inset(r, 4), label, 13, text, 0);

@@ -2,7 +2,8 @@
 #include "gs_desk.h"
 #include <math.h>
 #include "app.h"
-#include "draw.h"
+#include "fonts.h"
+#include "gs_draw.h"
 #include "gs_text.h"
 #include "loop.h"
 #include "pipeline.h"
@@ -30,7 +31,7 @@
 
 typedef struct { gs_fontset *fonts; gs_glyphs *glyphs; SDL_Renderer *r; float scale, opacity; } pen;
 
-static SDL_FColor ink(const pen *p, unsigned rgb, float alpha) { return eh_rgba(rgb, alpha * p->opacity); }
+static SDL_FColor ink(const pen *p, unsigned rgb, float alpha) { return gs_rgba(rgb, alpha * p->opacity); }
 
 // One line of text with its top at y, cut with an ellipsis to fit `max` points. Returns its width.
 static float text_line(const pen *p, const char *s, float x, float y, float px, float max, SDL_FColor c) {
@@ -94,15 +95,15 @@ static void draw_dot(const pen *p, const char *status, float cx, float cy, doubl
     if (!SDL_strcmp(status, "starting") || !SDL_strcmp(status, "paused")) {
         // A ring: the microphone is not delivering, or is held.
         float a = SDL_strcmp(status, "starting") ? 1 : dot_pulse(t, 1);
-        eh_stroke_round(r, x - 4 * s, y - 4 * s, 8 * s, 8 * s, 4 * s, 2 * s, ink(p, ACCENT, a));
+        gs_draw_outline(r, (SDL_FRect){ x - 4 * s, y - 4 * s, 8 * s, 8 * s }, 4 * s, 2 * s, ink(p, ACCENT, a));
     } else if (!SDL_strcmp(status, "recording")) {
         float a = dot_pulse(t, 2);
-        eh_fill_circle(r, x, y, 7 * s, ink(p, ACCENT, 0.16f * a));
-        eh_fill_circle(r, x, y, 4 * s, ink(p, ACCENT, a));
+        gs_draw_circle(r, x, y, 7 * s, ink(p, ACCENT, 0.16f * a));
+        gs_draw_circle(r, x, y, 4 * s, ink(p, ACCENT, a));
     } else {
         bool busy = !SDL_strcmp(status, "transcribing") || !SDL_strcmp(status, "cleaning") || !SDL_strcmp(status, "delivering");
         unsigned colour = busy ? TEXT_DIM : !SDL_strcmp(status, "done") ? OK : !SDL_strcmp(status, "error") ? ERR : IDLE;
-        eh_fill_circle(r, x, y, 4 * s, ink(p, colour, busy ? dot_pulse(t, 1.2) : 1));
+        gs_draw_circle(r, x, y, 4 * s, ink(p, colour, busy ? dot_pulse(t, 1.2) : 1));
     }
 }
 
@@ -123,20 +124,20 @@ static void draw_key(const pen *p, const eh_overlay_model *m, int kind, float cx
         mark = ink(p, 0xffffff, 0.28f);
     } else if (kind == 2) {
         // The primary action: filled white, the one bright thing on the bar.
-        eh_fill_circle(r, x, y, radius, ink(p, hover ? 0xffffff : TEXT, 1));
+        gs_draw_circle(r, x, y, radius, ink(p, hover ? 0xffffff : TEXT, 1));
         mark = ink(p, INK, 1);
     } else if (kind == 3 && hover) {
-        eh_fill_circle(r, x, y, radius, ink(p, ERR, 0.12f));
+        gs_draw_circle(r, x, y, radius, ink(p, ERR, 0.12f));
         mark = ink(p, ERR, 1);
     } else if (hover || (kind == 1 && paused)) {
-        eh_fill_circle(r, x, y, radius, ink(p, 0xffffff, 0.08f));
+        gs_draw_circle(r, x, y, radius, ink(p, 0xffffff, 0.08f));
         mark = ink(p, TEXT, 1);
     }
     // The marks are drawn in a 16-unit box, 14 points wide (15 for the check).
     float u = (kind == 2 ? 15.0f : 14.0f) / 16 * s, ox = x - 8 * u, oy = y - 8 * u, w = 2 * u;
-#define L(x0, y0, x1, y1) eh_line(r, ox + (x0) * u, oy + (y0) * u, ox + (x1) * u, oy + (y1) * u, w, mark)
+#define L(x0, y0, x1, y1) gs_draw_line(r, ox + (x0) * u, oy + (y0) * u, ox + (x1) * u, oy + (y1) * u, w, mark)
     if (kind == 1 && paused) {
-        eh_fill_triangle(r, ox + 6 * u, oy + 3.4f * u, ox + 14 * u, oy + 8 * u, ox + 6 * u, oy + 12.6f * u, mark);
+        gs_draw_triangle(r, ox + 6 * u, oy + 3.4f * u, ox + 14 * u, oy + 8 * u, ox + 6 * u, oy + 12.6f * u, mark);
     } else if (kind == 1) {
         L(5.6f, 4.2f, 5.6f, 11.8f);
         L(10.4f, 4.2f, 10.4f, 11.8f);
@@ -170,9 +171,9 @@ static float eh_overlay_draw_with(SDL_Renderer *r, gs_glyphs *glyphs, const eh_o
     SDL_RenderClear(r);
     gs_glyphs_begin_frame(glyphs);
     // The bar: solid near-black with a hairline edge, and its grip.
-    eh_fill_round(r, card_x * s, card_y * s, card_w * s, card_h * s, 16 * s, ink(&p, INK, 1));
-    eh_stroke_round(r, card_x * s, card_y * s, card_w * s, card_h * s, 16 * s, SDL_max(1, s), ink(&p, 0xffffff, 0.1f));
-    eh_fill_round(r, (card_x + card_w / 2 - 18) * s, (card_y + 7) * s, 36 * s, 4 * s, 2 * s, ink(&p, 0xffffff, m->card_hover ? 0.28f : 0.16f));
+    gs_draw_round(r, (SDL_FRect){ card_x * s, card_y * s, card_w * s, card_h * s }, 16 * s, ink(&p, INK, 1));
+    gs_draw_outline(r, (SDL_FRect){ card_x * s, card_y * s, card_w * s, card_h * s }, 16 * s, SDL_max(1, s), ink(&p, 0xffffff, 0.1f));
+    gs_draw_round(r, (SDL_FRect){ (card_x + card_w / 2 - 18) * s, (card_y + 7) * s, 36 * s, 4 * s }, 2 * s, ink(&p, 0xffffff, m->card_hover ? 0.28f : 0.16f));
 
     if (wrap) {
         float y = card_y + 15 + 6;
@@ -187,7 +188,7 @@ static float eh_overlay_draw_with(SDL_Renderer *r, gs_glyphs *glyphs, const eh_o
             SDL_free(a);
             SDL_free(b);
         }
-        eh_fill_round(r, card_x * s, (card_y + 15 + transcript_h - 1) * s, card_w * s, SDL_max(1, s), 0, ink(&p, 0xffffff, 0.08f));
+        gs_draw_round(r, (SDL_FRect){ card_x * s, (card_y + 15 + transcript_h - 1) * s, card_w * s, SDL_max(1, s) }, 0, ink(&p, 0xffffff, 0.08f));
     }
 
     // The control row, from its two ends inward.
@@ -227,12 +228,12 @@ static float eh_overlay_draw_with(SDL_Renderer *r, gs_glyphs *glyphs, const eh_o
             float x = edge - ((float)i + 1 + m->column_fraction) * col + gap;
             if (x + bar < left * s) break;
             float amp = SDL_max(bar, SDL_min(1, m->levels[i] * WAVE_GAIN) * max_amp);
-            eh_fill_round(r, x, mid * s - amp / 2, bar, amp, bar / 2, c);
+            gs_draw_round(r, (SDL_FRect){ x, mid * s - amp / 2, bar, amp }, bar / 2, c);
         }
         float live_w = m->column_fraction * col - gap;
         if (recording && live_w > 0) {
             float amp = SDL_max(bar, SDL_min(1, m->live_level * WAVE_GAIN) * max_amp);
-            eh_fill_round(r, edge - live_w, mid * s - amp / 2, live_w, amp, SDL_min(live_w, bar) / 2, c);
+            gs_draw_round(r, (SDL_FRect){ edge - live_w, mid * s - amp / 2, live_w, amp }, SDL_min(live_w, bar) / 2, c);
         }
         SDL_SetRenderClipRect(r, NULL);
         if (*m->detail) {
@@ -252,8 +253,8 @@ static float eh_overlay_draw_with(SDL_Renderer *r, gs_glyphs *glyphs, const eh_o
         if (m->progress) {
             float y = (mid + 16 - 1 - 3) * s;
             layout.progress = (SDL_FRect){ left, mid + 16 - 1 - 3, wave_w, 3 };
-            eh_fill_round(r, left * s, y, wave_w * s, 3 * s, 2 * s, ink(&p, 0xffffff, 0.12f));
-            eh_fill_round(r, left * s, y, wave_w * s * SDL_clamp(m->fraction, 0, 1), 3 * s, 2 * s, ink(&p, ACCENT, 1));
+            gs_draw_round(r, (SDL_FRect){ left * s, y, wave_w * s, 3 * s }, 2 * s, ink(&p, 0xffffff, 0.12f));
+            gs_draw_round(r, (SDL_FRect){ left * s, y, wave_w * s * SDL_clamp(m->fraction, 0, 1), 3 * s }, 2 * s, ink(&p, ACCENT, 1));
         }
     }
     if (wrap) gs_wrap_free(wrap);

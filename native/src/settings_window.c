@@ -14,7 +14,8 @@
 #include "deliver.h"
 #include "activate.h"
 #include "gs_desk.h"
-#include "draw.h"
+#include "fonts.h"
+#include "gs_draw.h"
 #include "engines.h"
 #include "hf.h"
 #include "history.h"
@@ -574,9 +575,9 @@ static void legend(int section) {
     W.section_y[section] = pg.y;
     gs_rect r = take(26);
     float s = gs_ui_scale(eh_ui_gs(W.ui));
-    eh_fill_circle(SDL_GetRenderer(eh_ui_window(W.ui)), (r.x + 9) * s, (r.y + 13) * s, 5 * s, eh_rgba(section_colours[section], 1));
+    gs_draw_circle(SDL_GetRenderer(eh_ui_window(W.ui)), (r.x + 9) * s, (r.y + 13) * s, 5 * s, gs_rgba(section_colours[section], 1));
     float w = gs_ui_text_width(eh_ui_gs(W.ui), section_names[section], 16);
-    eh_w_line(W.ui, (gs_rect){ r.x + 28, r.y, r.w - 28, r.h }, section_names[section], 16, eh_rgba(EH_TEXT, 1), -1);
+    eh_w_line(W.ui, (gs_rect){ r.x + 28, r.y, r.w - 28, r.h }, section_names[section], 16, gs_rgba(EH_TEXT, 1), -1);
     gs_ui_fill(eh_ui_gs(W.ui), (gs_rect){ r.x + 28 + w + 14, r.y + 13, SDL_max(0, r.w - 42 - w), 1 }, EH_SEAM);
     pg.y += 14;
 }
@@ -702,8 +703,8 @@ static void manage(eh_model_kind kind, engine_draft *d) {
     if (job.active) {
         pg.y += 10;
         gs_rect bar = take(4);
-        eh_w_round(W.ui, bar, 2, eh_rgba(0xffffff, 0.12f));
-        if (job.total) eh_w_round(W.ui, (gs_rect){ bar.x, bar.y, bar.w * (float)((double)job.received / (double)job.total), bar.h }, 2, eh_rgba(EH_TEXT, 1));
+        eh_w_round(W.ui, bar, 2, gs_rgba(0xffffff, 0.12f));
+        if (job.total) eh_w_round(W.ui, (gs_rect){ bar.x, bar.y, bar.w * (float)((double)job.received / (double)job.total), bar.h }, 2, gs_rgba(EH_TEXT, 1));
         eh_ui_again(W.ui, 100);
     }
     pg.y += 10;
@@ -816,7 +817,7 @@ static void engine_choice(const char *prefix, engine_draft *d, const char *expla
     pg.y += 8;
     gs_rect r = take(20);
     float s = gs_ui_scale(eh_ui_gs(W.ui));
-    eh_fill_circle(SDL_GetRenderer(eh_ui_window(W.ui)), (r.x + 5) * s, (r.y + 10) * s, 4 * s, eh_ui_ink(W.ui, d->engine ? 0xea9941 : 0x16bbbc, 1));
+    gs_draw_circle(SDL_GetRenderer(eh_ui_window(W.ui)), (r.x + 5) * s, (r.y + 10) * s, 4 * s, eh_ui_ink(W.ui, d->engine ? 0xea9941 : 0x16bbbc, 1));
     eh_w_line(W.ui, (gs_rect){ r.x + 18, r.y, r.w - 18, r.h }, d->engine ? there : here, 12, eh_ui_ink(W.ui, EH_TEXT, 0.9f), -1);
 }
 
@@ -1039,7 +1040,7 @@ static void history(void) {
 
     card_begin(NULL);
     gs_rect head = take(34);
-    eh_w_line(W.ui, head, "Recent transcriptions", 13, eh_rgba(EH_TEXT, 1), -1);
+    eh_w_line(W.ui, head, "Recent transcriptions", 13, gs_rgba(EH_TEXT, 1), -1);
     float cw = eh_w_button_width(W.ui, "Clear history");
     if (eh_w_button(W.ui, (gs_rect){ head.x + head.w - cw, head.y, cw, 34 }, "history-clear", "Clear history", EH_BTN_DANGER)) {
         eh_ui_ask(W.ui, "Clear all saved transcriptions? This can't be undone.", "Clear history", "Cancel", true);
@@ -1049,7 +1050,7 @@ static void history(void) {
     const eh_jv *items = eh_history_list();
     int count = eh_jv_count(items), pages = SDL_max(1, (count + HISTORY_PAGE - 1) / HISTORY_PAGE);
     W.history_page = SDL_min(W.history_page, pages - 1);
-    if (!count) text("No transcriptions yet.", 13, eh_rgba(EH_TEXT_DIM, 1));
+    if (!count) text("No transcriptions yet.", 13, gs_rgba(EH_TEXT_DIM, 1));
     int start = W.history_page * HISTORY_PAGE;
     bool copied = W.copied_at && SDL_GetTicks() - W.copied_at < 1200;
     if (copied) eh_ui_again(W.ui, 200);
@@ -1067,13 +1068,13 @@ static void history(void) {
             float clip_top = SDL_max(pg.y, W.view_top), clip_bottom = SDL_min(pg.y + shown, W.view_bottom);
             gs_rect clip = { pg.x, clip_top, pg.w, SDL_max(0, clip_bottom - clip_top) };
             gs_ui_clip(eh_ui_gs(W.ui), &clip);
-            eh_w_text(W.ui, (gs_rect){ pg.x, pg.y, pg.w, full }, body, 13, eh_rgba(EH_TEXT, 1));
+            eh_w_text(W.ui, (gs_rect){ pg.x, pg.y, pg.w, full }, body, 13, gs_rgba(EH_TEXT, 1));
             eh_scroll_reclip(W.ui);
         }
         pg.y += shown + 6;
         gs_rect meta = take(30);
         when_text(when, sizeof when, item);
-        eh_w_line(W.ui, meta, when, 12, eh_rgba(EH_TEXT_DIM, 1), -1);
+        eh_w_line(W.ui, meta, when, 12, gs_rgba(EH_TEXT_DIM, 1), -1);
         float x = meta.x + meta.w;
 #define ROW_BUTTON(ID, LABEL) (SDL_snprintf(id, sizeof id, "history-%s-%d", ID, row), x -= eh_w_button_width(W.ui, LABEL) + 8, eh_w_button(W.ui, (gs_rect){ x + 8, meta.y, eh_w_button_width(W.ui, LABEL), 30 }, id, LABEL, EH_BTN_PLAIN))
         if (eh_jv_boolean(eh_jv_get(item, "cleaned"), false) && raw && SDL_strcmp(raw, body))
@@ -1094,7 +1095,7 @@ static void history(void) {
         gs_rect pager = take(34);
         char range[64];
         SDL_snprintf(range, sizeof range, "%d–%d of %d", start + 1, SDL_min(count, start + HISTORY_PAGE), count);
-        eh_w_line(W.ui, pager, range, 12, eh_rgba(EH_TEXT_DIM, 1), 0);
+        eh_w_line(W.ui, pager, range, 12, gs_rgba(EH_TEXT_DIM, 1), 0);
         float ow = eh_w_button_width(W.ui, "Older"), nw = eh_w_button_width(W.ui, "Newer");
         eh_ui_inert(W.ui, W.history_page == 0, W.history_page == 0);
         if (eh_w_button(W.ui, (gs_rect){ pager.x, pager.y, nw, 34 }, "history-newer", "Newer", EH_BTN_PLAIN)) W.history_page--, W.expanded = 0;
@@ -1127,7 +1128,7 @@ static void advanced(void) {
     card_end();
 
     card_begin("About");
-    text("Earheart v" EARHEART_VERSION " — private, hotkey-driven voice dictation. Free and open source (MIT).", 13, eh_rgba(EH_TEXT, 1));
+    text("Earheart v" EARHEART_VERSION " — private, hotkey-driven voice dictation. Free and open source (MIT).", 13, gs_rgba(EH_TEXT, 1));
     pg.y += 12;
     x = pg.x;
     if (button_at(&x, pg.y, "open-logs", "Open error log", EH_BTN_PLAIN)) {
@@ -1230,8 +1231,8 @@ int eh_settings_window_frame(void) {
     // The header.
     gs_rect header = gs_cut_top(&area, 72);
     eh_w_icon(W.ui, (gs_rect){ 24, 18, 34, 34 });
-    eh_w_line(W.ui, (gs_rect){ 71, 16, header.w - 90, 22 }, "Earheart", 16, eh_rgba(EH_TEXT, 1), -1);
-    eh_w_line(W.ui, (gs_rect){ 71, 38, header.w - 90, 18 }, "Press the hotkey, speak, press it again — your words appear where you type.", 12, eh_rgba(EH_TEXT_DIM, 1), -1);
+    eh_w_line(W.ui, (gs_rect){ 71, 16, header.w - 90, 22 }, "Earheart", 16, gs_rgba(EH_TEXT, 1), -1);
+    eh_w_line(W.ui, (gs_rect){ 71, 38, header.w - 90, 18 }, "Press the hotkey, speak, press it again — your words appear where you type.", 12, gs_rgba(EH_TEXT_DIM, 1), -1);
     gs_ui_fill(gs, (gs_rect){ 0, header.h - 1, header.w, 1 }, EH_SEAM);
 
     // The footer.
@@ -1251,7 +1252,7 @@ int eh_settings_window_frame(void) {
         card_begin(NULL);
         float w = pg.w, bw = eh_w_button_width(W.ui, "Dismiss"), banner_top = pg.y;
         pg.w -= bw + 14;
-        text("Setup complete. These settings were pre-configured by the setup wizard — save them as they are, or adjust anything first.", 13, eh_rgba(EH_TEXT, 1));
+        text("Setup complete. These settings were pre-configured by the setup wizard — save them as they are, or adjust anything first.", 13, gs_rgba(EH_TEXT, 1));
         pg.w = w;
         if (eh_w_button(W.ui, (gs_rect){ pg.x + pg.w - bw, banner_top, bw, 34 }, "wizard-banner-dismiss", "Dismiss", EH_BTN_PLAIN)) W.wizard_banner = false;
         pg.y = SDL_max(pg.y, banner_top + 34);
@@ -1294,14 +1295,14 @@ int eh_settings_window_frame(void) {
             eh_ui_focus(W.ui, first[i]);
         }
         float s = gs_ui_scale(gs);
-        eh_fill_circle(SDL_GetRenderer(eh_ui_window(W.ui)), (r.x + r.w - 14) * s, (r.y + 17) * s, 3 * s, eh_rgba(section_colours[i], i == W.section ? 1 : 0.55f));
+        gs_draw_circle(SDL_GetRenderer(eh_ui_window(W.ui)), (r.x + r.w - 14) * s, (r.y + 17) * s, 3 * s, gs_rgba(section_colours[i], i == W.section ? 1 : 0.55f));
     }
 
     // Save, and what it says.
     if (W.save_clear_at && SDL_GetTicks() >= W.save_clear_at) W.save.tone = ST_NONE, W.save_clear_at = 0;
     if (W.save_clear_at) eh_ui_again(W.ui, 250);
     if (W.save.tone != ST_NONE)
-        eh_w_line(W.ui, (gs_rect){ 24, footer.y, footer.w - sw - 60, footer.h }, W.save.text, 12, eh_rgba(W.save.tone == ST_OK ? EH_OK : W.save.tone == ST_ERR ? EH_ERR : EH_TEXT_DIM, 1), 1);
+        eh_w_line(W.ui, (gs_rect){ 24, footer.y, footer.w - sw - 60, footer.h }, W.save.text, 12, gs_rgba(W.save.tone == ST_OK ? EH_OK : W.save.tone == ST_ERR ? EH_ERR : EH_TEXT_DIM, 1), 1);
     eh_ui_inert(W.ui, W.saving, false);
     if (eh_w_button(W.ui, (gs_rect){ footer.w - sw - 24, footer.y + 14, sw, 36 }, "save", "Save", EH_BTN_PRIMARY)) {
         W.saving = true;

@@ -9,7 +9,8 @@
 #include "defaults.h"
 #include "activate.h"
 #include "gs_desk.h"
-#include "draw.h"
+#include "fonts.h"
+#include "gs_draw.h"
 #include "hotkeys.h"
 #include "loop.h"
 #include "model_jobs.h"
@@ -180,25 +181,25 @@ static gs_rect take(float h) {
 }
 
 static void heading(const char *s) {
-    text(s, 18, eh_rgba(EH_TEXT, 1));
+    text(s, 18, gs_rgba(EH_TEXT, 1));
     pg.y += 10;
 }
 
 static void para(const char *s) {
-    text(s, 13, eh_rgba(EH_TEXT_DIM, 1));
+    text(s, 13, gs_rgba(EH_TEXT_DIM, 1));
     pg.y += 14;
 }
 
 static void field_label(const char *s) {
-    eh_w_line(Z.ui, take(20), s, 13, eh_rgba(EH_TEXT, 1), -1);
+    eh_w_line(Z.ui, take(20), s, 13, gs_rgba(EH_TEXT, 1), -1);
     pg.y += 6;
 }
 
 static void key_cap(float *x, float y, const char *name) {
     float w = gs_ui_text_width(eh_ui_gs(Z.ui), name, 12) + 16;
-    eh_w_round(Z.ui, (gs_rect){ *x, y, w, 26 }, 6, eh_rgba(0xffffff, 0.1f));
-    eh_w_outline(Z.ui, (gs_rect){ *x, y, w, 26 }, 6, eh_rgba(0xffffff, 0.2f));
-    eh_w_line(Z.ui, (gs_rect){ *x, y, w, 26 }, name, 12, eh_rgba(EH_TEXT, 1), 0);
+    eh_w_round(Z.ui, (gs_rect){ *x, y, w, 26 }, 6, gs_rgba(0xffffff, 0.1f));
+    eh_w_outline(Z.ui, (gs_rect){ *x, y, w, 26 }, 6, gs_rgba(0xffffff, 0.2f));
+    eh_w_line(Z.ui, (gs_rect){ *x, y, w, 26 }, name, 12, gs_rgba(EH_TEXT, 1), 0);
     *x += w + 5;
 }
 
@@ -224,26 +225,26 @@ static void welcome(void) {
             for (int k = 0; k < 3; k++) key_cap(&x, box.y + 25, keys[k]);
         } else if (i == 1) {
             gs_rect bar = { box.x + 14, box.y + 24, box.w - 28, 28 };
-            eh_w_round(Z.ui, bar, 14, eh_rgba(EH_INK, 1));
+            eh_w_round(Z.ui, bar, 14, gs_rgba(EH_INK, 1));
             eh_w_outline(Z.ui, bar, 14, EH_EDGE);
-            eh_fill_circle(r, (bar.x + 14) * s, (bar.y + 14) * s, 3.5f * s, eh_rgba(EH_ACCENT, 1));
+            gs_draw_circle(r, (bar.x + 14) * s, (bar.y + 14) * s, 3.5f * s, gs_rgba(EH_ACCENT, 1));
             static const float heights[13] = { 4, 9, 14, 7, 11, 16, 6, 12, 9, 15, 5, 10, 7 };
-            for (int k = 0; k < 13; k++) eh_w_round(Z.ui, (gs_rect){ bar.x + 26 + (float)k * 4, bar.y + 14 - heights[k] / 2, 2.5f, heights[k] }, 1.2f, eh_rgba(EH_ACCENT, 1));
-            eh_w_line(Z.ui, (gs_rect){ bar.x + bar.w - 62, bar.y, 30, bar.h }, "0:03", 11, eh_rgba(EH_TEXT, 1), 1);
-            eh_fill_circle(r, (bar.x + bar.w - 14) * s, (bar.y + 14) * s, 9 * s, eh_rgba(EH_TEXT, 1));
+            for (int k = 0; k < 13; k++) eh_w_round(Z.ui, (gs_rect){ bar.x + 26 + (float)k * 4, bar.y + 14 - heights[k] / 2, 2.5f, heights[k] }, 1.2f, gs_rgba(EH_ACCENT, 1));
+            eh_w_line(Z.ui, (gs_rect){ bar.x + bar.w - 62, bar.y, 30, bar.h }, "0:03", 11, gs_rgba(EH_TEXT, 1), 1);
+            gs_draw_circle(r, (bar.x + bar.w - 14) * s, (bar.y + 14) * s, 9 * s, gs_rgba(EH_TEXT, 1));
             float cx = (bar.x + bar.w - 14) * s, cy = (bar.y + 14) * s, u = s * 0.5f;
-            eh_line(r, cx - 4.6f * u * 1.6f, cy + 0.6f * u * 1.6f, cx - 1.3f * u * 1.6f, cy + 3.8f * u * 1.6f, 1.8f * s, eh_rgba(EH_INK, 1));
-            eh_line(r, cx - 1.3f * u * 1.6f, cy + 3.8f * u * 1.6f, cx + 4.6f * u * 1.6f, cy - 3.4f * u * 1.6f, 1.8f * s, eh_rgba(EH_INK, 1));
+            gs_draw_line(r, cx - 4.6f * u * 1.6f, cy + 0.6f * u * 1.6f, cx - 1.3f * u * 1.6f, cy + 3.8f * u * 1.6f, 1.8f * s, gs_rgba(EH_INK, 1));
+            gs_draw_line(r, cx - 1.3f * u * 1.6f, cy + 3.8f * u * 1.6f, cx + 4.6f * u * 1.6f, cy - 3.4f * u * 1.6f, 1.8f * s, gs_rgba(EH_INK, 1));
         } else {
             gs_rect line = { box.x + 16, box.y + 26, box.w - 32, 24 };
-            eh_w_line(Z.ui, line, "Your words appear.", 13, eh_rgba(EH_TEXT, 1), 0);
+            eh_w_line(Z.ui, line, "Your words appear.", 13, gs_rgba(EH_TEXT, 1), 0);
         }
-        eh_w_line(Z.ui, (gs_rect){ box.x, top + 84, col, 20 }, captions[i], 12, eh_rgba(EH_TEXT_DIM, 1), 0);
+        eh_w_line(Z.ui, (gs_rect){ box.x, top + 84, col, 20 }, captions[i], 12, gs_rgba(EH_TEXT_DIM, 1), 0);
         if (i < 2) {
             float ax = (box.x + col + 5) * s, ay = (top + 38) * s;
-            eh_line(r, ax, ay, ax + 10 * s, ay, 1.5f * s, eh_rgba(EH_TEXT_DIM, 1));
-            eh_line(r, ax + 6 * s, ay - 4 * s, ax + 10 * s, ay, 1.5f * s, eh_rgba(EH_TEXT_DIM, 1));
-            eh_line(r, ax + 6 * s, ay + 4 * s, ax + 10 * s, ay, 1.5f * s, eh_rgba(EH_TEXT_DIM, 1));
+            gs_draw_line(r, ax, ay, ax + 10 * s, ay, 1.5f * s, gs_rgba(EH_TEXT_DIM, 1));
+            gs_draw_line(r, ax + 6 * s, ay - 4 * s, ax + 10 * s, ay, 1.5f * s, gs_rgba(EH_TEXT_DIM, 1));
+            gs_draw_line(r, ax + 6 * s, ay + 4 * s, ax + 10 * s, ay, 1.5f * s, gs_rgba(EH_TEXT_DIM, 1));
         }
     }
     pg.y = top + 120;
@@ -268,13 +269,13 @@ static void hotkey_step(void) {
     }
     pg.y += 8;
 #ifdef __linux__
-    text("The default works fine for most people — click the box to choose your own. On GNOME/KDE Wayland, apps may not be able to grab global keys — instead, bind a system keyboard shortcut to earheart --toggle.", 12, eh_rgba(EH_TEXT_DIM, 1));
+    text("The default works fine for most people — click the box to choose your own. On GNOME/KDE Wayland, apps may not be able to grab global keys — instead, bind a system keyboard shortcut to earheart --toggle.", 12, gs_rgba(EH_TEXT_DIM, 1));
 #else
-    text("The default works fine for most people — click the box to choose your own.", 12, eh_rgba(EH_TEXT_DIM, 1));
+    text("The default works fine for most people — click the box to choose your own.", 12, gs_rgba(EH_TEXT_DIM, 1));
 #endif
     if (Z.hotkey_status[0]) {
         pg.y += 8;
-        text(Z.hotkey_status, 12, eh_rgba(EH_ERR, 1));
+        text(Z.hotkey_status, 12, gs_rgba(EH_ERR, 1));
     }
 }
 
@@ -285,14 +286,14 @@ static void mic_step(void) {
     eh_w_select(Z.ui, take(36), "mic-device", (const char *const *)Z.mics, Z.mic_count, &Z.mic);
     if (Z.no_mics) {
         pg.y += 8;
-        text("No microphone found (or access was denied). You can pick one later in Settings.", 12, eh_rgba(EH_TEXT_DIM, 1));
+        text("No microphone found (or access was denied). You can pick one later in Settings.", 12, gs_rgba(EH_TEXT_DIM, 1));
     }
 }
 
 static void bullet(const char *s) {
     float sc = gs_ui_scale(eh_ui_gs(Z.ui));
-    eh_fill_circle(SDL_GetRenderer(eh_ui_window(Z.ui)), (pg.x + 8) * sc, (pg.y + 9) * sc, 2.5f * sc, eh_rgba(EH_OK, 1));
-    pg.y += eh_w_text(Z.ui, (gs_rect){ pg.x + 22, pg.y, pg.w - 22, 100 }, s, 13, eh_rgba(EH_TEXT, 1)) + 6;
+    gs_draw_circle(SDL_GetRenderer(eh_ui_window(Z.ui)), (pg.x + 8) * sc, (pg.y + 9) * sc, 2.5f * sc, gs_rgba(EH_OK, 1));
+    pg.y += eh_w_text(Z.ui, (gs_rect){ pg.x + 22, pg.y, pg.w - 22, 100 }, s, 13, gs_rgba(EH_TEXT, 1)) + 6;
 }
 
 static void stt_step(void) {
@@ -310,7 +311,7 @@ static void cleanup_step(void) {
     heading("Polish your transcripts automatically?");
     para("After transcription, a small language model can fix punctuation and capitalization and remove filler words and false starts — so what lands is clean, not a raw stream of speech.");
     gs_rect row = take(26);
-    eh_w_line(Z.ui, (gs_rect){ row.x, row.y, row.w - 60, row.h }, "Clean up transcripts automatically (recommended)", 13, eh_rgba(EH_TEXT, 1), -1);
+    eh_w_line(Z.ui, (gs_rect){ row.x, row.y, row.w - 60, row.h }, "Clean up transcripts automatically (recommended)", 13, gs_rgba(EH_TEXT, 1), -1);
     eh_w_switch(Z.ui, (gs_rect){ row.x + row.w - 40, row.y + 2, 40, 22 }, "cleanup-enabled", &Z.cleanup_enabled);
     pg.y += 16;
     eh_ui_inert(Z.ui, !Z.cleanup_enabled, !Z.cleanup_enabled);
@@ -346,8 +347,8 @@ static void cleanup_step(void) {
 
 static void summary_row(const char *name, const char *value) {
     gs_rect r = take(26);
-    eh_w_line(Z.ui, (gs_rect){ r.x, r.y, 130, r.h }, name, 12, eh_rgba(EH_TEXT_DIM, 1), -1);
-    eh_w_line(Z.ui, (gs_rect){ r.x + 130, r.y, r.w - 130, r.h }, value, 13, eh_rgba(EH_TEXT, 1), -1);
+    eh_w_line(Z.ui, (gs_rect){ r.x, r.y, 130, r.h }, name, 12, gs_rgba(EH_TEXT_DIM, 1), -1);
+    eh_w_line(Z.ui, (gs_rect){ r.x + 130, r.y, r.w - 130, r.h }, value, 13, gs_rgba(EH_TEXT, 1), -1);
 }
 
 static void output_step(void) {
@@ -398,13 +399,13 @@ static void finish_step(void) {
         else if (failed) SDL_strlcpy(line, job.error[0] ? job.error : "Download failed", sizeof line), tone = EH_ERR;
         else SDL_strlcpy(line, "Downloading…", sizeof line);
         gs_rect head = take(22);
-        eh_w_line(Z.ui, (gs_rect){ head.x, head.y, head.w * 0.55f, head.h }, m->label ? m->label : m->id, 13, eh_rgba(EH_TEXT, 1), -1);
-        eh_w_line(Z.ui, (gs_rect){ head.x + head.w * 0.4f, head.y, head.w * 0.6f, head.h }, line, 12, eh_rgba(tone, 1), 1);
+        eh_w_line(Z.ui, (gs_rect){ head.x, head.y, head.w * 0.55f, head.h }, m->label ? m->label : m->id, 13, gs_rgba(EH_TEXT, 1), -1);
+        eh_w_line(Z.ui, (gs_rect){ head.x + head.w * 0.4f, head.y, head.w * 0.6f, head.h }, line, 12, gs_rgba(tone, 1), 1);
         pg.y += 6;
         gs_rect bar = take(4);
-        eh_w_round(Z.ui, bar, 2, eh_rgba(0xffffff, 0.12f));
-        if (fraction > 0) eh_w_round(Z.ui, (gs_rect){ bar.x, bar.y, bar.w * SDL_min(1, fraction), bar.h }, 2, eh_rgba(EH_TEXT, 1));
-        if (m->note) pg.y += 8, text(m->note, 12, eh_rgba(EH_TEXT_DIM, 1));
+        eh_w_round(Z.ui, bar, 2, gs_rgba(0xffffff, 0.12f));
+        if (fraction > 0) eh_w_round(Z.ui, (gs_rect){ bar.x, bar.y, bar.w * SDL_min(1, fraction), bar.h }, 2, gs_rgba(EH_TEXT, 1));
+        if (m->note) pg.y += 8, text(m->note, 12, gs_rgba(EH_TEXT_DIM, 1));
         if (failed && !row->skipped) {
             pg.y += 8;
             char id[32];
@@ -430,7 +431,7 @@ static void finish_step(void) {
         }
         pg.y += 44;
     }
-    if (Z.finish_status[0]) text(Z.finish_status, 12, eh_rgba(Z.finish_failed ? EH_ERR : EH_TEXT_DIM, 1));
+    if (Z.finish_status[0]) text(Z.finish_status, 12, gs_rgba(Z.finish_failed ? EH_ERR : EH_TEXT_DIM, 1));
 }
 
 /* ---------------- the window ---------------- */
@@ -503,8 +504,8 @@ int eh_wizard_window_frame(void) {
 
     gs_rect header = gs_cut_top(&area, 72);
     eh_w_icon(Z.ui, (gs_rect){ 24, 18, 34, 34 });
-    eh_w_line(Z.ui, (gs_rect){ 71, 16, header.w - 90, 22 }, "Welcome to Earheart", 16, eh_rgba(EH_TEXT, 1), -1);
-    eh_w_line(Z.ui, (gs_rect){ 71, 38, header.w - 90, 18 }, "A couple of quick questions and you're dictating.", 12, eh_rgba(EH_TEXT_DIM, 1), -1);
+    eh_w_line(Z.ui, (gs_rect){ 71, 16, header.w - 90, 22 }, "Welcome to Earheart", 16, gs_rgba(EH_TEXT, 1), -1);
+    eh_w_line(Z.ui, (gs_rect){ 71, 38, header.w - 90, 18 }, "A couple of quick questions and you're dictating.", 12, gs_rgba(EH_TEXT_DIM, 1), -1);
     gs_ui_fill(gs, (gs_rect){ 0, header.h - 1, header.w, 1 }, EH_SEAM);
     gs_rect footer = gs_cut_bottom(&area, 64);
     gs_ui_fill(gs, (gs_rect){ 0, footer.y, footer.w, 1 }, EH_SEAM);
@@ -525,7 +526,7 @@ int eh_wizard_window_frame(void) {
     float skip_w = eh_w_button_width(Z.ui, "Skip setup");
     bool skip = eh_w_button(Z.ui, (gs_rect){ x, y, skip_w, 34 }, "skip", "Skip setup", EH_BTN_NAV);
     float dots_x = footer.w / 2 - (float)STEPS * 7;
-    for (int i = 0; i < STEPS; i++) eh_fill_circle(SDL_GetRenderer(eh_ui_window(Z.ui)), (dots_x + (float)i * 14 + 4) * s, (footer.y + 32) * s, 3 * s, eh_rgba(EH_TEXT, i == Z.step ? 1 : 0.25f));
+    for (int i = 0; i < STEPS; i++) gs_draw_circle(SDL_GetRenderer(eh_ui_window(Z.ui)), (dots_x + (float)i * 14 + 4) * s, (footer.y + 32) * s, 3 * s, gs_rgba(EH_TEXT, i == Z.step ? 1 : 0.25f));
     bool last = Z.step == STEPS - 1, ready = !last || all_done();
     const char *next_label = Z.step == 0 ? "Get started" : !last ? "Next" : ready ? "Finish setup" : "Downloading…";
     float next_w = eh_w_button_width(Z.ui, next_label) + 16, back_w = eh_w_button_width(Z.ui, "Back");
