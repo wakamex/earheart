@@ -9,6 +9,9 @@
 // Reads the file at `path` (it need not exist). When it does not, and `import_from` names a
 // settings file of the Electron build, those settings are taken over and saved here.
 void eh_settings_init(const char *path, const char *import_from);
+// Whether the API keys last went to the system's place for secrets (the Keychain, the Secret
+// Service, the user's Windows account) and not to a file only the user can read.
+bool eh_settings_keys_protected(void);
 bool eh_settings_first_run(void);  // there was no settings file, and none to import
 
 const gs_jval *eh_settings(void);                  // the current settings; not to be changed

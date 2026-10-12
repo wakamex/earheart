@@ -841,7 +841,24 @@ static void remote_fields(const char *prefix, engine_draft *d, bool cleanup, con
     label("API key (optional for local servers)");
     SDL_snprintf(id, sizeof id, "%s-key", prefix);
     eh_w_field(W.ui, take(36), id, d->key, sizeof d->key, NULL, EH_FIELD_MASKED);
-    hint("Saved in the settings file, which is readable only by your user account.");
+    // How the key is kept, in the Electron build's words.
+#if defined(__APPLE__)
+    const char *kept = "Saved encrypted with your macOS Keychain.";
+#elif defined(_WIN32)
+    const char *kept = "Saved encrypted with your Windows account.";
+#else
+    const char *kept = "Saved encrypted with your system keyring.";
+#endif
+    // Said of a key that has been saved: only a save shows where a key can go.
+    if (!*gs_jval_string(gs_jval_path(W.base, cleanup ? "cleanup.apiKey" : "stt.apiKey"), "")) kept = "";
+    else if (!eh_settings_keys_protected()) {
+#ifdef __linux__
+        kept = "Saved unencrypted: no system keyring (such as GNOME Keyring or KWallet) is available. The key's file is readable only by your user account.";
+#else
+        kept = "Saved unencrypted: your system's secure storage isn't available. The key's file is readable only by your user account.";
+#endif
+    }
+    if (*kept) hint(kept);
     pg.y += 14;
     label("Model");
     SDL_snprintf(id, sizeof id, "%s-model", prefix);

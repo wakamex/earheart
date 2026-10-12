@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "gs_secret.h"
 #include <string.h>
 #include <SDL3/SDL.h>
 #include <math.h>
@@ -107,6 +108,50 @@ gs_jval *eh_settings_resolve(const gs_jval *stored) {
     return merged;
 }
 
+/* ---------------- API keys ---------------- */
+
+// The keys of the two services are kept apart from the settings file, in the system's place for
+// secrets where it has one (gesso's gs_secret: the Keychain, the Secret Service, the user's
+// Windows account) and in a file only the user can read where it has none. The settings in memory
+// carry them; the settings file never does.
+static const char *const KEYED[2] = { "stt", "cleanup" };
+static bool keys_protected;
+
+static void key_path(const char *section, char *out, size_t size) {
+    SDL_strlcpy(out, S.path, size);
+    char *slash = SDL_strrchr(out, '/');
+#ifdef _WIN32
+    char *back = SDL_strrchr(out, '\\');
+    if (back > slash) slash = back;
+#endif
+    size_t dir = slash ? (size_t)(slash - out) + 1 : 0;
+    SDL_snprintf(out + dir, size - dir, "%s-api-key", section);
+}
+
+// Puts the keys of `settings` away and returns what the file is to hold: the same without them.
+// A key that could not be put away stays in the file, which only the user can read.
+static gs_jval *without_keys(const gs_jval *settings) {
+    gs_jval *file = gs_jval_clone(settings);
+    for (int i = 0; i < 2; i++) {
+        char path[1300], field[32];
+        key_path(KEYED[i], path, sizeof path);
+        SDL_snprintf(field, sizeof field, "%s.apiKey", KEYED[i]);
+        const char *key = gs_jval_string(gs_jval_path(settings, field), "");
+        if (!*key) {
+            gs_secret_erase(path);
+        } else if (gs_secret_save(path, key, SDL_strlen(key))) {
+            keys_protected = gs_secret_protected();
+            gs_jval_set_path(file, field, gs_jval_str(""));
+        } else {
+            keys_protected = false;
+            SDL_Log("the %s API key could not be put in the system's secret store; it stays in the settings file", KEYED[i]);
+        }
+    }
+    return file;
+}
+
+bool eh_settings_keys_protected(void) { return keys_protected; }
+
 /* ---------------- the file ---------------- */
 
 // The file's content as an object, or NULL. A file that is not a JSON object is moved aside, so
@@ -157,6 +202,26 @@ void eh_settings_init(const char *path, const char *import_from) {
     gs_jval_free(empty);
     gs_jval_free(stored);
     S.first_run = !exists && !imported;
+    // The keys come from where they are kept. One still in the file is from before they were kept
+    // apart: it is put away, and the file written without it.
+    bool in_file = false;
+    for (int i = 0; i < 2; i++) {
+        char key_file[1300], field[32];
+        key_path(KEYED[i], key_file, sizeof key_file);
+        SDL_snprintf(field, sizeof field, "%s.apiKey", KEYED[i]);
+        if (*gs_jval_string(gs_jval_path(S.current, field), "")) { in_file = true; continue; }
+        size_t len = 0;
+        char *key = gs_secret_load(key_file, &len);
+        if (key) {
+            keys_protected = gs_secret_protected();
+            gs_jval_set_path(S.current, field, gs_jval_str(key));
+        }
+        SDL_free(key);
+    }
+    if (in_file && !imported) {
+        char error[256];
+        if (!eh_settings_save(gs_jval_clone(S.current), error, sizeof error)) SDL_Log("the API keys could not be moved out of the settings file: %s", error);
+    }
     if (imported) {
         char error[256];
         if (!eh_settings_save(gs_jval_clone(S.current), error, sizeof error)) SDL_Log("the imported settings could not be saved: %s", error);
@@ -180,7 +245,9 @@ void eh_settings_on_changed(eh_settings_listener *fn, void *user) {
 bool eh_settings_save(gs_jval *next, char *error, size_t error_size) {
     gs_jval *merged = merged_over_defaults(next);
     gs_jval_free(next);
-    char *text = eh_json_text(merged, true);
+    gs_jval *file = without_keys(merged);
+    char *text = eh_json_text(file, true);
+    gs_jval_free(file);
     bool ok = eh_write_file_atomic(S.path, text, SDL_strlen(text), error, error_size);
     SDL_free(text);
     if (!ok) { gs_jval_free(merged); return false; }
