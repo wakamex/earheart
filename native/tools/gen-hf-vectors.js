@@ -110,6 +110,8 @@ async function main() {
   repos.push(await stt("o", "sidecars", ["encoder.onnx", "encoder.data", "encoder.onnx_data", "other/encoder.weights", "decoder.onnx", "joiner.onnx", "decoder_extra.data", "tokens.txt"]));
   repos.push(await stt("o", "two-tokens", ["base-encoder.onnx", "base-decoder.onnx", "base-tokens.txt", "tiny-encoder.onnx", "tiny-decoder.onnx", "tiny-tokens.txt", "tokens.txt"]));
   repos.push(await stt("o", "quantized-names", ["encoder_quantized.onnx", "decoder_quantized.onnx", "joiner_quantized.onnx", "encoder_q4f16.onnx", "decoder_q4f16.onnx", "joiner_q4f16.onnx", "encoder-half.onnx", "decoder-half.onnx", "joiner-half.onnx", "tokens.txt"]));
+  // Every precision the ranking names, and two it does not, so each neighbouring pair is ordered.
+  repos.push(await stt("o", "every-precision", ["fp32", "fp16", "uint8", "q8", "quantized", "int8", "q4", "bnb4"].flatMap((p) => T.map((c) => `${c}.${p}.onnx`)).concat(["tokens.txt"])));
   repos.push(await stt("o", "Upper-Case", ["Encoder.ONNX", "Decoder.ONNX", "Joiner.ONNX", "Tokens.txt"]));
   repos.push(await stt("o", "ref", [...T.map((c) => `${c}.onnx`), "tokens.txt"], { ref: "v1.0" }));
   const PARTS = ["encoder", "decoder", "joiner", "tokens.txt", "model"], PRE = ["", "tiny-", "base.", "x_", "large-v3-", "sub/", "a/b/"], POST = ["", ".int8", "_fp16", "-q8", ".quantized", "-epoch-1"];
