@@ -8,23 +8,23 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "hotkeys.h"
-#include "jv.h"
+#include "gs_json.h"
 
 // The fields other parts of the app change, as a form last saw them saved: the output mode (the
 // tray sets it) and the dictionary (the correction editor adds to it).
-typedef struct { char output_mode[16]; eh_jv *dictionary; } eh_form_baseline;
-void eh_form_baseline_take(eh_form_baseline *b, const eh_jv *settings);
+typedef struct { char output_mode[16]; gs_jval *dictionary; } eh_form_baseline;
+void eh_form_baseline_take(eh_form_baseline *b, const gs_jval *settings);
 
 // "paste-copy" also for paste without the clipboard put back, which is what it means.
-const char *eh_displayed_output_mode(const eh_jv *settings);
+const char *eh_displayed_output_mode(const gs_jval *settings);
 
 // Takes `next`. False with `error` when the file could not be written, the hotkeys then being as
 // they were. `results` says how each hotkey fared; a refused one's saved value is unchanged.
-bool eh_commit_settings(eh_jv *next, const eh_form_baseline *baseline, eh_hotkey_results *results, char *error, size_t error_size);
+bool eh_commit_settings(gs_jval *next, const eh_form_baseline *baseline, eh_hotkey_results *results, char *error, size_t error_size);
 
 // A list of terms trimmed, without empty ones and repeats. The caller frees every result.
-eh_jv *eh_vocabulary_terms(const eh_jv *terms);
+gs_jval *eh_vocabulary_terms(const gs_jval *terms);
 // The live list with what the form removed since its baseline taken out and what it added put in.
-eh_jv *eh_vocabulary_merge(const eh_jv *baseline, const eh_jv *edited, const eh_jv *live);
+gs_jval *eh_vocabulary_merge(const gs_jval *baseline, const gs_jval *edited, const gs_jval *live);
 // The list with one more spelling, or NULL with the reason it cannot be added.
-eh_jv *eh_vocabulary_remember(const eh_jv *terms, const char *spelling, char *error, size_t error_size);
+gs_jval *eh_vocabulary_remember(const gs_jval *terms, const char *spelling, char *error, size_t error_size);

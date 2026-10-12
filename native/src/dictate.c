@@ -28,21 +28,21 @@ static struct {
     char *delivered;       // what delivery was handed
     char *raw, *cleaned;   // the live transcript's last lines
     char error[256];
-    eh_jv *phases;         // when each status after the stop began, in ms
+    gs_jval *phases;         // when each status after the stop began, in ms
     int partials, cleaned_partials, notices;
     bool incomplete;
 } D;
 
-static void observer(const char *kind, const char *a, const char *b, double number, const eh_jv *detail) {
+static void observer(const char *kind, const char *a, const char *b, double number, const gs_jval *detail) {
     Uint64 now = SDL_GetTicks();
     if (!SDL_strcmp(kind, "status")) {
         if (!SDL_strcmp(a, "recording") && !D.live_at) D.live_at = now;
-        if (D.stop_at) eh_jv_set(D.phases, a, eh_jv_num((double)(now - D.stop_at)));
+        if (D.stop_at) gs_jval_set(D.phases, a, gs_jval_num((double)(now - D.stop_at)));
         if (!SDL_strcmp(a, "done") || !SDL_strcmp(a, "empty") || !SDL_strcmp(a, "error")) {
             D.finished = true;
             SDL_strlcpy(D.outcome, a, sizeof D.outcome);
-            SDL_strlcpy(D.error, eh_jv_string(eh_jv_get(detail, "message"), ""), sizeof D.error);
-            D.incomplete = eh_jv_boolean(eh_jv_get(detail, "incomplete"), false);
+            SDL_strlcpy(D.error, gs_jval_string(gs_jval_get(detail, "message"), ""), sizeof D.error);
+            D.incomplete = gs_jval_boolean(gs_jval_get(detail, "incomplete"), false);
         }
     } else if (!SDL_strcmp(kind, "partial")) {
         bool cleaned = !SDL_strcmp(a, "cleaned");
@@ -54,21 +54,21 @@ static void observer(const char *kind, const char *a, const char *b, double numb
         D.notices++;
     }
     if (!D.events) return;
-    eh_jv *o = eh_jv_object();
-    eh_jv_set(o, "event", eh_jv_str(kind));
-    eh_jv_set(o, "ms", eh_jv_num((double)(now - D.started)));
-    if (a) eh_jv_set(o, "a", eh_jv_str(a));
-    if (b) eh_jv_set(o, "b", eh_jv_str(b));
-    if (!SDL_strcmp(kind, "progress")) eh_jv_set(o, "fraction", eh_jv_num(number));
-    if (detail) eh_jv_set(o, "detail", eh_jv_clone(detail));
-    char *line = eh_jv_write(o, false);
+    gs_jval *o = gs_jval_object();
+    gs_jval_set(o, "event", gs_jval_str(kind));
+    gs_jval_set(o, "ms", gs_jval_num((double)(now - D.started)));
+    if (a) gs_jval_set(o, "a", gs_jval_str(a));
+    if (b) gs_jval_set(o, "b", gs_jval_str(b));
+    if (!SDL_strcmp(kind, "progress")) gs_jval_set(o, "fraction", gs_jval_num(number));
+    if (detail) gs_jval_set(o, "detail", gs_jval_clone(detail));
+    char *line = gs_jval_write(o, false);
     puts(line);
     fflush(stdout);
     SDL_free(line);
-    eh_jv_free(o);
+    gs_jval_free(o);
 }
 
-static bool deliver(const char *text, const eh_jv *output, eh_signal *signal, eh_delivery *result, char *error, size_t error_size) {
+static bool deliver(const char *text, const gs_jval *output, eh_signal *signal, eh_delivery *result, char *error, size_t error_size) {
     SDL_free(D.delivered);
     D.delivered = SDL_strdup(text);
     SDL_strlcpy(result->method, "clipboard", sizeof result->method);
@@ -122,7 +122,7 @@ int eh_cmd_dictate(int argc, char **argv) {
     for (int i = 0; i < set_count; i++) {
         const char *eq = SDL_strchr(sets[i], '=');
         char path[128];
-        eh_jv *value = eq ? eh_jv_parse(eq + 1, SDL_strlen(eq + 1)) : NULL;
+        gs_jval *value = eq ? gs_jval_parse(eq + 1, SDL_strlen(eq + 1)) : NULL;
         if (!value || (size_t)(eq - sets[i]) >= sizeof path) { fprintf(stderr, "earheart: --set wants PATH=JSON, got %s\n", sets[i]); return 2; }
         SDL_strlcpy(path, sets[i], (size_t)(eq - sets[i]) + 1);
         if (!eh_setting_set(path, value, error, sizeof error)) { fprintf(stderr, "earheart: %s\n", error); return 1; }
@@ -139,8 +139,8 @@ int eh_cmd_dictate(int argc, char **argv) {
         SDL_free(D.raw);
         SDL_free(D.cleaned);
         D.delivered = D.raw = D.cleaned = NULL;
-        eh_jv_free(D.phases);
-        D.phases = eh_jv_object();
+        gs_jval_free(D.phases);
+        D.phases = gs_jval_object();
         eh_lock();
         eh_pipeline_toggle();
         bool recording = eh_pipeline_state() == EH_RECORDING;
@@ -165,23 +165,23 @@ int eh_cmd_dictate(int argc, char **argv) {
             if (over) break;
         }
         eh_lock();
-        eh_jv *o = eh_jv_object();
-        eh_jv_set(o, "run", eh_jv_num(run));
-        eh_jv_set(o, "outcome", eh_jv_str(D.outcome));
-        eh_jv_set(o, "text", eh_jv_str(D.delivered ? D.delivered : ""));
-        eh_jv_set(o, "incomplete", eh_jv_bool(D.incomplete));
-        if (D.error[0]) eh_jv_set(o, "error", eh_jv_str(D.error));
-        eh_jv_set(o, "stopToDoneMs", eh_jv_num((double)(SDL_GetTicks() - D.stop_at)));
-        eh_jv_set(o, "phaseStartsMs", eh_jv_clone(D.phases));
-        eh_jv_set(o, "partials", eh_jv_num(D.partials));
-        eh_jv_set(o, "cleanedPartials", eh_jv_num(D.cleaned_partials));
-        eh_jv_set(o, "lastPartial", eh_jv_str(D.raw ? D.raw : ""));
-        eh_jv_set(o, "notices", eh_jv_num(D.notices));
-        char *line = eh_jv_write(o, false);
+        gs_jval *o = gs_jval_object();
+        gs_jval_set(o, "run", gs_jval_num(run));
+        gs_jval_set(o, "outcome", gs_jval_str(D.outcome));
+        gs_jval_set(o, "text", gs_jval_str(D.delivered ? D.delivered : ""));
+        gs_jval_set(o, "incomplete", gs_jval_bool(D.incomplete));
+        if (D.error[0]) gs_jval_set(o, "error", gs_jval_str(D.error));
+        gs_jval_set(o, "stopToDoneMs", gs_jval_num((double)(SDL_GetTicks() - D.stop_at)));
+        gs_jval_set(o, "phaseStartsMs", gs_jval_clone(D.phases));
+        gs_jval_set(o, "partials", gs_jval_num(D.partials));
+        gs_jval_set(o, "cleanedPartials", gs_jval_num(D.cleaned_partials));
+        gs_jval_set(o, "lastPartial", gs_jval_str(D.raw ? D.raw : ""));
+        gs_jval_set(o, "notices", gs_jval_num(D.notices));
+        char *line = gs_jval_write(o, false);
         puts(line);
         fflush(stdout);
         SDL_free(line);
-        eh_jv_free(o);
+        gs_jval_free(o);
         if (SDL_strcmp(D.outcome, "done")) failed = 1;
         eh_unlock();
     }

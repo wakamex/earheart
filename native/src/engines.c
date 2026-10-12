@@ -118,10 +118,10 @@ void eh_signal_abort(eh_signal *s) {
 
 /* ---------------- speech-to-text ---------------- */
 
-eh_stt_readiness eh_stt_ready(const eh_jv *stt) {
+eh_stt_readiness eh_stt_ready(const gs_jval *stt) {
     eh_stt_readiness r = { .ok = true };
-    if (SDL_strcmp(eh_jv_string(eh_jv_get(stt, "engine"), ""), "builtin")) return r;
-    const char *id = eh_jv_string(eh_jv_path(stt, "builtin.model"), "");
+    if (SDL_strcmp(gs_jval_string(gs_jval_get(stt, "engine"), ""), "builtin")) return r;
+    const char *id = gs_jval_string(gs_jval_path(stt, "builtin.model"), "");
     SDL_strlcpy(r.model_id, id, sizeof r.model_id);
     const eh_model *m = eh_catalog_find(EH_MODEL_STT, id);
     if (!m) { r.ok = false; r.unknown = true; return r; }
@@ -176,16 +176,16 @@ bool eh_ensure_stt(const char *model_id, char *error, size_t error_size) {
     return s == EH_ENGINE_OK;
 }
 
-eh_decode_code eh_transcribe(const eh_jv *stt, const eh_signal *signal, const uint8_t *wav, size_t len, char **text, int *decode_ms, char *error, size_t error_size) {
+eh_decode_code eh_transcribe(const gs_jval *stt, const eh_signal *signal, const uint8_t *wav, size_t len, char **text, int *decode_ms, char *error, size_t error_size) {
     if (eh_signal_aborted(signal)) { SDL_strlcpy(error, "aborted", error_size); return EH_DECODE_FAILED; }
-    if (SDL_strcmp(eh_jv_string(eh_jv_get(stt, "engine"), ""), "builtin")) {
+    if (SDL_strcmp(gs_jval_string(gs_jval_get(stt, "engine"), ""), "builtin")) {
         // A remote service: one upload. The settings are copied, since they may change while it waits.
-        eh_jv *cfg = eh_jv_clone(stt);
+        gs_jval *cfg = gs_jval_clone(stt);
         EH_AWAIT(*text = eh_remote_transcribe(wav, len, cfg, (eh_signal *)signal, error, error_size));
-        eh_jv_free(cfg);
+        gs_jval_free(cfg);
         return *text ? EH_DECODE_OK : EH_DECODE_FAILED;
     }
-    if (!eh_ensure_stt(eh_jv_string(eh_jv_path(stt, "builtin.model"), ""), error, error_size)) return EH_DECODE_FAILED;
+    if (!eh_ensure_stt(gs_jval_string(gs_jval_path(stt, "builtin.model"), ""), error, error_size)) return EH_DECODE_FAILED;
     eh_jw w;
     eh_jw_begin(&w);
     eh_jw_str(&w, "type", "transcribe");
@@ -249,24 +249,24 @@ static void prime_task(void *user) {
     SDL_free(p);
 }
 
-void eh_prime_cleanup(const eh_jv *cleanup, const char *transcript_prefix) {
+void eh_prime_cleanup(const gs_jval *cleanup, const char *transcript_prefix) {
     eh_cleanup_plan plan = eh_resolve_cleanup(cleanup);
     prime_request *p = SDL_malloc(sizeof *p);
-    p->model = SDL_strdup(eh_jv_string(eh_jv_path(cleanup, "builtin.model"), ""));
+    p->model = SDL_strdup(gs_jval_string(gs_jval_path(cleanup, "builtin.model"), ""));
     p->text = eh_cleanup_turn_prefix(plan.system_prompt, transcript_prefix ? transcript_prefix : "");
     SDL_free(plan.system_prompt);
     eh_spawn(prime_task, p);
 }
 
-char *eh_clean(const char *transcript, const eh_jv *cleanup, eh_signal *signal, eh_fraction_fn *progress, void *user, char *error, size_t error_size) {
+char *eh_clean(const char *transcript, const gs_jval *cleanup, eh_signal *signal, eh_fraction_fn *progress, void *user, char *error, size_t error_size) {
     if (eh_signal_aborted(signal)) { SDL_strlcpy(error, "aborted", error_size); return NULL; }
-    const char *style_name = eh_jv_string(eh_jv_get(cleanup, "style"), "");
+    const char *style_name = gs_jval_string(gs_jval_get(cleanup, "style"), "");
     bool tidied_style = !SDL_strcmp(style_name, "clean") || !SDL_strcmp(style_name, "polished");
-    if (SDL_strcmp(eh_jv_string(eh_jv_get(cleanup, "engine"), ""), "builtin")) {
-        eh_jv *cfg = eh_jv_clone(cleanup);
+    if (SDL_strcmp(gs_jval_string(gs_jval_get(cleanup, "engine"), ""), "builtin")) {
+        gs_jval *cfg = gs_jval_clone(cleanup);
         char *cleaned;
         EH_AWAIT(cleaned = eh_remote_clean(transcript, cfg, signal, error, error_size));
-        eh_jv_free(cfg);
+        gs_jval_free(cfg);
         if (cleaned && eh_signal_aborted(signal)) {
             SDL_free(cleaned);
             SDL_strlcpy(error, "aborted", error_size);
@@ -279,7 +279,7 @@ char *eh_clean(const char *transcript, const eh_jv *cleanup, eh_signal *signal, 
     eh_jw w;
     eh_jw_begin(&w);
     eh_jw_str(&w, "type", "clean");
-    if (!cleanup_model(&w, eh_jv_string(eh_jv_path(cleanup, "builtin.model"), ""), error, error_size)) {
+    if (!cleanup_model(&w, gs_jval_string(gs_jval_path(cleanup, "builtin.model"), ""), error, error_size)) {
         SDL_free(eh_jw_end(&w));
         return NULL;
     }
@@ -311,7 +311,7 @@ char *eh_clean(const char *transcript, const eh_jv *cleanup, eh_signal *signal, 
             SDL_free(cleaned);
         } else {
             // The safety net behind the model, for the styles that promise tidied text.
-            const char *style = eh_jv_string(eh_jv_get(cleanup, "style"), "");
+            const char *style = gs_jval_string(gs_jval_get(cleanup, "style"), "");
             bool tidied = !SDL_strcmp(style, "clean") || !SDL_strcmp(style, "polished");
             out = tidied ? eh_strip_stumbles(cleaned) : SDL_strdup(cleaned);
             SDL_free(cleaned);

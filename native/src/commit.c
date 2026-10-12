@@ -3,55 +3,55 @@
 #include "settings.h"
 #include "text.h"
 
-const char *eh_displayed_output_mode(const eh_jv *settings) {
-    const char *mode = eh_jv_string(eh_jv_path(settings, "output.mode"), "paste");
-    if (!SDL_strcmp(mode, "paste") && !eh_jv_boolean(eh_jv_path(settings, "output.restoreClipboard"), true)) return "paste-copy";
+const char *eh_displayed_output_mode(const gs_jval *settings) {
+    const char *mode = gs_jval_string(gs_jval_path(settings, "output.mode"), "paste");
+    if (!SDL_strcmp(mode, "paste") && !gs_jval_boolean(gs_jval_path(settings, "output.restoreClipboard"), true)) return "paste-copy";
     return !SDL_strcmp(mode, "clipboard") ? "clipboard" : !SDL_strcmp(mode, "paste-copy") ? "paste-copy" : "paste";
 }
 
-void eh_form_baseline_take(eh_form_baseline *b, const eh_jv *settings) {
+void eh_form_baseline_take(eh_form_baseline *b, const gs_jval *settings) {
     SDL_strlcpy(b->output_mode, eh_displayed_output_mode(settings), sizeof b->output_mode);
-    eh_jv_free(b->dictionary);
-    const eh_jv *words = eh_jv_path(settings, "cleanup.dictionary");
-    b->dictionary = words ? eh_jv_clone(words) : eh_jv_array();
+    gs_jval_free(b->dictionary);
+    const gs_jval *words = gs_jval_path(settings, "cleanup.dictionary");
+    b->dictionary = words ? gs_jval_clone(words) : gs_jval_array();
 }
 
-static bool has_term(const eh_jv *list, const char *term) {
-    for (int i = 0; i < eh_jv_count(list); i++)
-        if (!SDL_strcmp(eh_jv_string(eh_jv_at(list, i), ""), term)) return true;
+static bool has_term(const gs_jval *list, const char *term) {
+    for (int i = 0; i < gs_jval_count(list); i++)
+        if (!SDL_strcmp(gs_jval_string(gs_jval_at(list, i), ""), term)) return true;
     return false;
 }
 
-eh_jv *eh_vocabulary_terms(const eh_jv *terms) {
-    eh_jv *out = eh_jv_array();
-    for (int i = 0; i < eh_jv_count(terms); i++) {
-        const eh_jv *t = eh_jv_at(terms, i);
-        if (!t || t->type != EH_JV_STRING) continue;
-        char *trimmed = eh_trim(t->string);
-        if (*trimmed && !has_term(out, trimmed)) eh_jv_push(out, eh_jv_str(trimmed));
+gs_jval *eh_vocabulary_terms(const gs_jval *terms) {
+    gs_jval *out = gs_jval_array();
+    for (int i = 0; i < gs_jval_count(terms); i++) {
+        const gs_jval *t = gs_jval_at(terms, i);
+        if (!t || gs_jval_kind(t) != GS_JSON_STRING) continue;
+        char *trimmed = eh_trim(gs_jval_string(t, ""));
+        if (*trimmed && !has_term(out, trimmed)) gs_jval_push(out, gs_jval_str(trimmed));
         SDL_free(trimmed);
     }
     return out;
 }
 
-eh_jv *eh_vocabulary_merge(const eh_jv *baseline, const eh_jv *edited, const eh_jv *live) {
-    eh_jv *before = eh_vocabulary_terms(baseline), *wanted = eh_vocabulary_terms(edited), *now = eh_vocabulary_terms(live), *out = eh_jv_array();
-    for (int i = 0; i < eh_jv_count(now); i++) {
-        const char *term = eh_jv_string(eh_jv_at(now, i), "");
+gs_jval *eh_vocabulary_merge(const gs_jval *baseline, const gs_jval *edited, const gs_jval *live) {
+    gs_jval *before = eh_vocabulary_terms(baseline), *wanted = eh_vocabulary_terms(edited), *now = eh_vocabulary_terms(live), *out = gs_jval_array();
+    for (int i = 0; i < gs_jval_count(now); i++) {
+        const char *term = gs_jval_string(gs_jval_at(now, i), "");
         bool removed = has_term(before, term) && !has_term(wanted, term);
-        if (!removed && !has_term(out, term)) eh_jv_push(out, eh_jv_str(term));
+        if (!removed && !has_term(out, term)) gs_jval_push(out, gs_jval_str(term));
     }
-    for (int i = 0; i < eh_jv_count(wanted); i++) {
-        const char *term = eh_jv_string(eh_jv_at(wanted, i), "");
-        if (!has_term(before, term) && !has_term(out, term)) eh_jv_push(out, eh_jv_str(term));
+    for (int i = 0; i < gs_jval_count(wanted); i++) {
+        const char *term = gs_jval_string(gs_jval_at(wanted, i), "");
+        if (!has_term(before, term) && !has_term(out, term)) gs_jval_push(out, gs_jval_str(term));
     }
-    eh_jv_free(before);
-    eh_jv_free(wanted);
-    eh_jv_free(now);
+    gs_jval_free(before);
+    gs_jval_free(wanted);
+    gs_jval_free(now);
     return out;
 }
 
-eh_jv *eh_vocabulary_remember(const eh_jv *terms, const char *spelling, char *error, size_t error_size) {
+gs_jval *eh_vocabulary_remember(const gs_jval *terms, const char *spelling, char *error, size_t error_size) {
     char *term = eh_trim(spelling ? spelling : "");
     if (!*term) {
         SDL_strlcpy(error, "Enter a spelling to remember.", error_size);
@@ -65,14 +65,14 @@ eh_jv *eh_vocabulary_remember(const eh_jv *terms, const char *spelling, char *er
         SDL_free(term);
         return NULL;
     }
-    eh_jv *list = eh_vocabulary_terms(terms);
+    gs_jval *list = eh_vocabulary_terms(terms);
     if (!has_term(list, term)) {
-        eh_jv_push(list, eh_jv_str(term));
+        gs_jval_push(list, gs_jval_str(term));
         size_t joined = 0;
-        for (int i = 0; i < eh_jv_count(list); i++) joined += SDL_utf8strlen(eh_jv_string(eh_jv_at(list, i), "")) + (i ? 1 : 0);
-        if (eh_jv_count(list) > 256 || joined > 8192) {
+        for (int i = 0; i < gs_jval_count(list); i++) joined += SDL_utf8strlen(gs_jval_string(gs_jval_at(list, i), "")) + (i ? 1 : 0);
+        if (gs_jval_count(list) > 256 || joined > 8192) {
             SDL_strlcpy(error, "The dictionary is full. Remove some words in Settings before adding another.", error_size);
-            eh_jv_free(list);
+            gs_jval_free(list);
             list = NULL;
         }
     }
@@ -80,34 +80,34 @@ eh_jv *eh_vocabulary_remember(const eh_jv *terms, const char *spelling, char *er
     return list;
 }
 
-bool eh_commit_settings(eh_jv *next, const eh_form_baseline *baseline, eh_hotkey_results *results, char *error, size_t error_size) {
+bool eh_commit_settings(gs_jval *next, const eh_form_baseline *baseline, eh_hotkey_results *results, char *error, size_t error_size) {
     static const char *const keys[EH_HK_COUNT] = { "hotkey", "pauseHotkey", "discardHotkey", "correctHotkey" };
-    eh_jv *previous = eh_jv_clone(eh_settings());
+    gs_jval *previous = gs_jval_clone(eh_settings());
     // What the app itself owns is never the form's to change.
     static const char *const owned[] = { "overlay", "customModels" };
     for (int i = 0; i < 2; i++) {
-        const eh_jv *v = eh_jv_get(previous, owned[i]);
-        if (v) eh_jv_set(next, owned[i], eh_jv_clone(v));
-        else eh_jv_remove(next, owned[i]);
+        const gs_jval *v = gs_jval_get(previous, owned[i]);
+        if (v) gs_jval_set(next, owned[i], gs_jval_clone(v));
+        else gs_jval_remove(next, owned[i]);
     }
     static const char *const versions[] = { "updates.skippedVersion", "updates.lastSeenVersion" };
     for (int i = 0; i < 2; i++) {
-        const eh_jv *v = eh_jv_path(previous, versions[i]);
-        if (v) eh_jv_set_path(next, versions[i], eh_jv_clone(v));
+        const gs_jval *v = gs_jval_path(previous, versions[i]);
+        if (v) gs_jval_set_path(next, versions[i], gs_jval_clone(v));
     }
     if (baseline) {
         // The dictionary is merged, so spellings remembered while the form was open are kept. The
         // output mode set from the tray since the form read it wins over the form's radio.
-        if (baseline->dictionary) eh_jv_set_path(next, "cleanup.dictionary", eh_vocabulary_merge(baseline->dictionary, eh_jv_path(next, "cleanup.dictionary"), eh_jv_path(previous, "cleanup.dictionary")));
+        if (baseline->dictionary) gs_jval_set_path(next, "cleanup.dictionary", eh_vocabulary_merge(baseline->dictionary, gs_jval_path(next, "cleanup.dictionary"), gs_jval_path(previous, "cleanup.dictionary")));
         if (baseline->output_mode[0] && SDL_strcmp(eh_displayed_output_mode(previous), baseline->output_mode)) {
-            eh_jv_set_path(next, "output.mode", eh_jv_clone(eh_jv_path(previous, "output.mode")));
-            eh_jv_set_path(next, "output.restoreClipboard", eh_jv_clone(eh_jv_path(previous, "output.restoreClipboard")));
+            gs_jval_set_path(next, "output.mode", gs_jval_clone(gs_jval_path(previous, "output.mode")));
+            gs_jval_set_path(next, "output.restoreClipboard", gs_jval_clone(gs_jval_path(previous, "output.restoreClipboard")));
         }
     }
     eh_hotkey_results r;
     eh_hotkeys_apply(next, &r);
     for (int n = 0; n < EH_HK_COUNT; n++)
-        if (!r.r[n].ok && !r.r[n].empty) eh_jv_set(next, keys[n], eh_jv_clone(eh_jv_get(previous, keys[n])));
+        if (!r.r[n].ok && !r.r[n].empty) gs_jval_set(next, keys[n], gs_jval_clone(gs_jval_get(previous, keys[n])));
     bool ok = eh_settings_save(next, error, error_size);
     if (!ok) {
         // The hotkeys go back to what the file still says.
@@ -117,6 +117,6 @@ bool eh_commit_settings(eh_jv *next, const eh_form_baseline *baseline, eh_hotkey
             if (!back.r[n].ok && !back.r[n].empty) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "could not restore hotkeys after settings save failed: %s", back.r[n].error);
     }
     if (results) *results = r;
-    eh_jv_free(previous);
+    gs_jval_free(previous);
     return ok;
 }

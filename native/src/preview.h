@@ -15,13 +15,13 @@
 #include <stdint.h>
 #include "chunked.h"
 #include "engines.h"
-#include "jv.h"
+#include "gs_json.h"
 
 typedef struct {
     // Decodes a chunk for the preview: the text, or NULL with `error` set, and in *partial_text
     // (SDL_malloc'd, or NULL) the words recovered when the chunk decoded only in part.
-    char *(*transcribe)(const uint8_t *wav, size_t len, const eh_jv *stt, eh_signal *signal, char **partial_text, char *error, size_t error_size);
-    char *(*clean)(const char *raw, const eh_jv *cleanup, eh_signal *signal, char *error, size_t error_size);
+    char *(*transcribe)(const uint8_t *wav, size_t len, const gs_jval *stt, eh_signal *signal, char **partial_text, char *error, size_t error_size);
+    char *(*clean)(const char *raw, const gs_jval *cleanup, eh_signal *signal, char *error, size_t error_size);
     void (*send)(const char *kind, const char *text);  // a line for the overlay: "raw" or "cleaned"
     bool (*is_current)(unsigned sid);                  // sid is the active, still-recording session
     void (*on_error)(const char *message);

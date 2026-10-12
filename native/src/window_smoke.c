@@ -10,7 +10,7 @@
 #include "activate.h"
 #include "gs_desk.h"
 #include "hotkeys.h"
-#include "jv.h"
+#include "gs_json.h"
 #include "loop.h"
 #include "paths.h"
 #include "settings.h"
@@ -349,25 +349,25 @@ int eh_cmd_settings_smoke(int argc, char **argv) {
     if (argc > 0) {
         size_t len = 0;
         char *text = SDL_LoadFile(argv[0], &len);
-        eh_jv *doc = text ? eh_jv_parse(text, len) : NULL;
-        const eh_jv *stored = eh_jv_get(doc, "stored");
-        CHECK(eh_jv_count(stored) > 0);
-        for (int i = 0; i < eh_jv_count(stored); i++, files++) {
+        gs_jval *doc = text ? gs_jval_parse(text, len) : NULL;
+        const gs_jval *stored = gs_jval_get(doc, "stored");
+        CHECK(gs_jval_count(stored) > 0);
+        for (int i = 0; i < gs_jval_count(stored); i++, files++) {
             char error[256];
             // The form trims dictionary terms and drops empty ones, as the Electron form does, so
             // the file is given to it that way.
-            eh_jv *file = eh_jv_clone(eh_jv_get(eh_jv_at(stored, i), "merged")), *terms = eh_jv_array();
-            const eh_jv *before = eh_jv_path(file, "cleanup.dictionary");
-            for (int t = 0; t < eh_jv_count(before); t++) {
-                const char *term = eh_jv_string(eh_jv_at(before, t), "");
+            gs_jval *file = gs_jval_clone(gs_jval_get(gs_jval_at(stored, i), "merged")), *terms = gs_jval_array();
+            const gs_jval *before = gs_jval_path(file, "cleanup.dictionary");
+            for (int t = 0; t < gs_jval_count(before); t++) {
+                const char *term = gs_jval_string(gs_jval_at(before, t), "");
                 while (*term == ' ') term++;
                 size_t n = SDL_strlen(term);
                 while (n && term[n - 1] == ' ') n--;
                 char *trimmed = SDL_strndup(term, n);
-                if (n) eh_jv_push(terms, eh_jv_str(trimmed));
+                if (n) gs_jval_push(terms, gs_jval_str(trimmed));
                 SDL_free(trimmed);
             }
-            eh_jv_set_path(file, "cleanup.dictionary", terms);
+            gs_jval_set_path(file, "cleanup.dictionary", terms);
             eh_lock();
             bool ok = eh_settings_save(file, error, sizeof error);
             eh_unlock();
@@ -378,7 +378,7 @@ int eh_cmd_settings_smoke(int argc, char **argv) {
             checks++;
             eh_settings_window_close();
         }
-        eh_jv_free(doc);
+        gs_jval_free(doc);
         SDL_free(text);
     }
 
@@ -484,9 +484,9 @@ static void correction_target(void) {
 
 static bool in_dictionary(const char *term) {
     eh_lock();
-    const eh_jv *list = eh_jv_path(eh_settings(), "cleanup.dictionary");
+    const gs_jval *list = gs_jval_path(eh_settings(), "cleanup.dictionary");
     bool found = false;
-    for (int i = 0; i < eh_jv_count(list); i++) found = found || !SDL_strcmp(eh_jv_string(eh_jv_at(list, i), ""), term);
+    for (int i = 0; i < gs_jval_count(list); i++) found = found || !SDL_strcmp(gs_jval_string(gs_jval_at(list, i), ""), term);
     eh_unlock();
     return found;
 }

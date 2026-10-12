@@ -7,7 +7,7 @@ const std = @import("std");
 const zon = @import("build.zig.zon");
 
 const flags: []const []const u8 = &.{ "-std=c11", "-ffp-contract=off", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-missing-field-initializers" };
-const sources: []const []const u8 = &.{ "engine.c", "worker.c", "paths.c", "cores.c", "files.c", "jv.c", "settings.c", "loop.c", "engines.c", "remote.c", "preview.c", "pipeline.c", "history.c", "recorder.c", "app.c", "jw.c", "wav.c", "audio.c", "chunked.c", "text.c", "stt.c", "cleanup.c", "models.c", "download.c", "catalog.c", "fonts.c", "overlay.c", "ui.c", "hotkeys.c", "model_jobs.c", "commit.c", "hf.c" };
+const sources: []const []const u8 = &.{ "engine.c", "worker.c", "paths.c", "cores.c", "files.c", "settings.c", "loop.c", "engines.c", "remote.c", "preview.c", "pipeline.c", "history.c", "recorder.c", "app.c", "jw.c", "wav.c", "audio.c", "chunked.c", "text.c", "stt.c", "cleanup.c", "models.c", "download.c", "catalog.c", "fonts.c", "overlay.c", "ui.c", "hotkeys.c", "model_jobs.c", "commit.c", "hf.c" };
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});

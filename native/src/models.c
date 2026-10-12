@@ -3,7 +3,7 @@
 #include <string.h>
 #include "gs_json.h"
 #include "gs_sha256.h"
-#include "jv.h"
+#include "gs_json.h"
 #include "paths.h"
 
 const char *eh_model_kind_dir(eh_model_kind kind) { return kind == EH_MODEL_STT ? "stt" : "cleanup"; }
@@ -28,25 +28,25 @@ bool eh_path_segment(const char *v) {
     return true;
 }
 
-static const char *kept(const eh_jv *v) {
-    const char *s = eh_jv_string(v, NULL);
+static const char *kept(const gs_jval *v) {
+    const char *s = gs_jval_string(v, NULL);
     return s ? SDL_strdup(s) : NULL;
 }
 
-static custom *make_custom(const eh_jv *def, const char *text) {
-    const char *id = eh_jv_string(eh_jv_get(def, "id"), ""), *kind = eh_jv_string(eh_jv_get(def, "kind"), "");
-    const eh_jv *files = eh_jv_get(def, "files"), *sherpa = eh_jv_get(def, "sherpa");
+static custom *make_custom(const gs_jval *def, const char *text) {
+    const char *id = gs_jval_string(gs_jval_get(def, "id"), ""), *kind = gs_jval_string(gs_jval_get(def, "kind"), "");
+    const gs_jval *files = gs_jval_get(def, "files"), *sherpa = gs_jval_get(def, "sherpa");
     if (!*id || (SDL_strcmp(kind, "stt") && SDL_strcmp(kind, "cleanup"))) return NULL;
     // Everything of it that becomes part of a path.
     bool safe = eh_path_segment(id);
-    for (int i = 0; i < eh_jv_count(files); i++) safe = safe && eh_path_segment(eh_jv_string(eh_jv_get(eh_jv_at(files, i), "name"), ""));
+    for (int i = 0; i < gs_jval_count(files); i++) safe = safe && eh_path_segment(gs_jval_string(gs_jval_get(gs_jval_at(files, i), "name"), ""));
     static const char *const parts[] = { "encoder", "decoder", "joiner", "tokens" };
     for (int i = 0; i < 4; i++) {
-        const eh_jv *part = eh_jv_get(sherpa, parts[i]);
-        if (part && part->type != EH_JV_NULL) safe = safe && eh_path_segment(eh_jv_string(part, ""));
+        const gs_jval *part = gs_jval_get(sherpa, parts[i]);
+        if (part && gs_jval_kind(part) != GS_JSON_NULL) safe = safe && eh_path_segment(gs_jval_string(part, ""));
     }
-    const eh_jv *gguf = eh_jv_path(def, "gguf.file");
-    if (gguf && gguf->type != EH_JV_NULL) safe = safe && eh_path_segment(eh_jv_string(gguf, ""));
+    const gs_jval *gguf = gs_jval_path(def, "gguf.file");
+    if (gguf && gs_jval_kind(gguf) != GS_JSON_NULL) safe = safe && eh_path_segment(gs_jval_string(gguf, ""));
     if (!safe) {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "ignoring custom model with an invalid path segment: %s", id);
         return NULL;
@@ -55,32 +55,32 @@ static custom *make_custom(const eh_jv *def, const char *text) {
     c->definition = SDL_strdup(text);
     eh_model *m = &c->model;
     m->id = SDL_strdup(id);
-    m->label = kept(eh_jv_get(def, "label"));
-    m->note = kept(eh_jv_get(def, "note"));
+    m->label = kept(gs_jval_get(def, "label"));
+    m->note = kept(gs_jval_get(def, "note"));
     m->kind = !SDL_strcmp(kind, "stt") ? EH_MODEL_STT : EH_MODEL_CLEANUP;
     m->custom = true;
-    m->file_count = eh_jv_count(files);
+    m->file_count = gs_jval_count(files);
     eh_model_file *list = SDL_calloc((size_t)m->file_count + 1, sizeof *list);
     for (int i = 0; i < m->file_count; i++) {
-        const eh_jv *f = eh_jv_at(files, i);
-        list[i].name = SDL_strdup(eh_jv_string(eh_jv_get(f, "name"), ""));
-        list[i].url = SDL_strdup(eh_jv_string(eh_jv_get(f, "url"), ""));
-        list[i].sha256 = SDL_strdup(eh_jv_string(eh_jv_get(f, "sha256"), ""));
-        list[i].bytes = (long long)eh_jv_number(eh_jv_get(f, "bytes"), 0);
+        const gs_jval *f = gs_jval_at(files, i);
+        list[i].name = SDL_strdup(gs_jval_string(gs_jval_get(f, "name"), ""));
+        list[i].url = SDL_strdup(gs_jval_string(gs_jval_get(f, "url"), ""));
+        list[i].sha256 = SDL_strdup(gs_jval_string(gs_jval_get(f, "sha256"), ""));
+        list[i].bytes = (long long)gs_jval_number(gs_jval_get(f, "bytes"), 0);
     }
     m->files = list;
     m->gguf = kept(gguf);
-    m->sherpa = (eh_stt_files){ kept(eh_jv_get(sherpa, "encoder")), kept(eh_jv_get(sherpa, "decoder")), kept(eh_jv_get(sherpa, "joiner")), kept(eh_jv_get(sherpa, "tokens")), kept(eh_jv_get(sherpa, "modelType")) };
+    m->sherpa = (eh_stt_files){ kept(gs_jval_get(sherpa, "encoder")), kept(gs_jval_get(sherpa, "decoder")), kept(gs_jval_get(sherpa, "joiner")), kept(gs_jval_get(sherpa, "tokens")), kept(gs_jval_get(sherpa, "modelType")) };
     return c;
 }
 
-void eh_models_set_custom(const eh_jv *list) {
-    int count = list && list->type == EH_JV_ARRAY ? eh_jv_count(list) : 0, n = 0;
+void eh_models_set_custom(const gs_jval *list) {
+    int count = list && gs_jval_kind(list) == GS_JSON_ARRAY ? gs_jval_count(list) : 0, n = 0;
     custom **next = SDL_calloc((size_t)count + 1, sizeof *next);
     for (int i = 0; i < count; i++) {
-        const eh_jv *def = eh_jv_at(list, i);
-        if (!def || def->type != EH_JV_OBJECT) continue;
-        char *text = eh_jv_write(def, false);
+        const gs_jval *def = gs_jval_at(list, i);
+        if (!def || gs_jval_kind(def) != GS_JSON_OBJECT) continue;
+        char *text = gs_jval_write(def, false);
         // The same definition as before is the same model: whoever holds it keeps a good pointer.
         custom *c = NULL;
         for (int k = 0; k < custom_count && !c; k++)

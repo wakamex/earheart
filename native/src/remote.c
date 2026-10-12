@@ -40,7 +40,7 @@ static bool keep_going(void *user, size_t received, long long total) { return !e
 
 // One request, its JSON answer parsed. NULL with `error` set, in words that name the service and
 // never its reply.
-static eh_jv *request_json(gs_http_request *r, const char *service, int timeout_ms, eh_signal *signal, char *error, size_t error_size) {
+static gs_jval *request_json(gs_http_request *r, const char *service, int timeout_ms, eh_signal *signal, char *error, size_t error_size) {
     watch w = { signal };
     r->timeout_ms = timeout_ms;
     r->follow = true;
@@ -50,7 +50,7 @@ static eh_jv *request_json(gs_http_request *r, const char *service, int timeout_
     size_t len = 0;
     Uint64 t0 = SDL_GetTicks();
     int status = gs_http_fetch(r, &body, &len);
-    eh_jv *json = NULL;
+    gs_jval *json = NULL;
     if (eh_signal_aborted(signal)) {
         SDL_strlcpy(error, "aborted", error_size);
     } else if (!status) {
@@ -61,7 +61,7 @@ static eh_jv *request_json(gs_http_request *r, const char *service, int timeout_
         else SDL_snprintf(error, error_size, "Couldn't reach %.*s", (int)strcspn(host, "/?#"), host);
     } else if (status < 200 || status >= 300) {
         SDL_snprintf(error, error_size, "%s error %d%s", service, status, status == 401 || status == 403 ? " — check the API key in Settings" : "");
-    } else if (!(json = body ? eh_jv_parse(body, len) : NULL)) {
+    } else if (!(json = body ? gs_jval_parse(body, len) : NULL)) {
         SDL_snprintf(error, error_size, "%s returned a response that isn't JSON", service);
     }
     SDL_free(body);
@@ -79,13 +79,13 @@ static const char **auth_headers(const char *api_key, const char *extra, char *l
     return list;
 }
 
-char *eh_remote_transcribe(const uint8_t *wav, size_t len, const eh_jv *stt, eh_signal *signal, char *error, size_t error_size) {
+char *eh_remote_transcribe(const uint8_t *wav, size_t len, const gs_jval *stt, eh_signal *signal, char *error, size_t error_size) {
     char url[1200], auth[600], type[120];
-    if (!service_url(eh_jv_string(eh_jv_get(stt, "baseUrl"), ""), "/audio/transcriptions", url, sizeof url, error, error_size)) return NULL;
+    if (!service_url(gs_jval_string(gs_jval_get(stt, "baseUrl"), ""), "/audio/transcriptions", url, sizeof url, error, error_size)) return NULL;
     // The form: the WAV as a file, the model and language when set, and the reply wanted as JSON.
     char boundary[48];
     SDL_snprintf(boundary, sizeof boundary, "----earheart%016llx", (unsigned long long)SDL_GetTicksNS());
-    const char *model = eh_jv_string(eh_jv_get(stt, "model"), ""), *language = eh_jv_string(eh_jv_get(stt, "language"), "");
+    const char *model = gs_jval_string(gs_jval_get(stt, "model"), ""), *language = gs_jval_string(gs_jval_get(stt, "language"), "");
     size_t cap = len + 2048, n = 0;
     char *body = SDL_malloc(cap);
 #define FIELD(name, value) n += (size_t)SDL_snprintf(body + n, cap - n, "--%s\r\nContent-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n", boundary, name, value)
@@ -101,15 +101,15 @@ char *eh_remote_transcribe(const uint8_t *wav, size_t len, const eh_jv *stt, eh_
     SDL_snprintf(type, sizeof type, "Content-Type: multipart/form-data; boundary=%s", boundary);
     const char *headers[3];
     gs_http_request r = { .url = url, .method = "POST", .body = body, .body_len = n,
-                          .headers = auth_headers(eh_jv_string(eh_jv_get(stt, "apiKey"), ""), type, auth, sizeof auth, headers) };
-    double timeout = eh_jv_number(eh_jv_get(stt, "timeoutMs"), 0);
-    eh_jv *data = request_json(&r, "STT service", timeout > 0 ? (int)timeout : 120000, signal, error, error_size);
+                          .headers = auth_headers(gs_jval_string(gs_jval_get(stt, "apiKey"), ""), type, auth, sizeof auth, headers) };
+    double timeout = gs_jval_number(gs_jval_get(stt, "timeoutMs"), 0);
+    gs_jval *data = request_json(&r, "STT service", timeout > 0 ? (int)timeout : 120000, signal, error, error_size);
     SDL_free(body);
     if (!data) return NULL;
-    const char *text = eh_jv_string(eh_jv_get(data, "text"), NULL);
+    const char *text = gs_jval_string(gs_jval_get(data, "text"), NULL);
     char *out = text ? eh_trim(text) : NULL;
     if (!text) SDL_strlcpy(error, "STT service returned no `text` field", error_size);
-    eh_jv_free(data);
+    gs_jval_free(data);
     return out;
 }
 
@@ -130,37 +130,37 @@ char *eh_strip_thinking(const char *text) {
     return out;
 }
 
-char *eh_remote_clean(const char *transcript, const eh_jv *cleanup, eh_signal *signal, char *error, size_t error_size) {
+char *eh_remote_clean(const char *transcript, const gs_jval *cleanup, eh_signal *signal, char *error, size_t error_size) {
     char url[1200], auth[600];
-    if (!service_url(eh_jv_string(eh_jv_get(cleanup, "baseUrl"), ""), "/chat/completions", url, sizeof url, error, error_size)) return NULL;
+    if (!service_url(gs_jval_string(gs_jval_get(cleanup, "baseUrl"), ""), "/chat/completions", url, sizeof url, error, error_size)) return NULL;
     eh_cleanup_plan plan = eh_resolve_cleanup(cleanup);
     // Only the settings every server takes go on the wire: top-k and min-p make strict servers
     // refuse the request, and a top-p of 1 says nothing.
-    eh_jv *req = eh_jv_object(), *messages = eh_jv_array(), *system = eh_jv_object(), *user = eh_jv_object();
-    eh_jv_set(req, "model", eh_jv_str(eh_jv_string(eh_jv_get(cleanup, "model"), "")));
-    if (plan.has_temperature) eh_jv_set(req, "temperature", eh_jv_num(plan.sampling.temperature));
-    if (plan.has_top_p && plan.sampling.top_p < 1) eh_jv_set(req, "top_p", eh_jv_num(plan.sampling.top_p));
-    eh_jv_set(system, "role", eh_jv_str("system"));
-    eh_jv_set(system, "content", eh_jv_str(plan.system_prompt));
-    eh_jv_set(user, "role", eh_jv_str("user"));
-    eh_jv_set(user, "content", eh_jv_str(transcript));
-    eh_jv_push(messages, system);
-    eh_jv_push(messages, user);
-    eh_jv_set(req, "messages", messages);
-    char *body = eh_jv_write(req, false);
-    eh_jv_free(req);
+    gs_jval *req = gs_jval_object(), *messages = gs_jval_array(), *system = gs_jval_object(), *user = gs_jval_object();
+    gs_jval_set(req, "model", gs_jval_str(gs_jval_string(gs_jval_get(cleanup, "model"), "")));
+    if (plan.has_temperature) gs_jval_set(req, "temperature", gs_jval_num(plan.sampling.temperature));
+    if (plan.has_top_p && plan.sampling.top_p < 1) gs_jval_set(req, "top_p", gs_jval_num(plan.sampling.top_p));
+    gs_jval_set(system, "role", gs_jval_str("system"));
+    gs_jval_set(system, "content", gs_jval_str(plan.system_prompt));
+    gs_jval_set(user, "role", gs_jval_str("user"));
+    gs_jval_set(user, "content", gs_jval_str(transcript));
+    gs_jval_push(messages, system);
+    gs_jval_push(messages, user);
+    gs_jval_set(req, "messages", messages);
+    char *body = gs_jval_write(req, false);
+    gs_jval_free(req);
     SDL_free(plan.system_prompt);
     const char *headers[3];
     gs_http_request r = { .url = url, .method = "POST", .body = body,
-                          .headers = auth_headers(eh_jv_string(eh_jv_get(cleanup, "apiKey"), ""), "Content-Type: application/json", auth, sizeof auth, headers) };
-    double timeout = eh_jv_number(eh_jv_get(cleanup, "timeoutMs"), 0);
-    eh_jv *data = request_json(&r, "Cleanup service", timeout > 0 ? (int)timeout : 120000, signal, error, error_size);
+                          .headers = auth_headers(gs_jval_string(gs_jval_get(cleanup, "apiKey"), ""), "Content-Type: application/json", auth, sizeof auth, headers) };
+    double timeout = gs_jval_number(gs_jval_get(cleanup, "timeoutMs"), 0);
+    gs_jval *data = request_json(&r, "Cleanup service", timeout > 0 ? (int)timeout : 120000, signal, error, error_size);
     SDL_free(body);
     if (!data) return NULL;
-    const eh_jv *choice = eh_jv_at(eh_jv_get(data, "choices"), 0);
-    const char *content = eh_jv_string(eh_jv_path(choice, "message.content"), NULL);
+    const gs_jval *choice = gs_jval_at(gs_jval_get(data, "choices"), 0);
+    const char *content = gs_jval_string(gs_jval_path(choice, "message.content"), NULL);
     char *out = NULL;
-    if (!SDL_strcmp(eh_jv_string(eh_jv_get(choice, "finish_reason"), ""), "length")) {
+    if (!SDL_strcmp(gs_jval_string(gs_jval_get(choice, "finish_reason"), ""), "length")) {
         SDL_strlcpy(error, "Cleanup reached its output token limit before finishing", error_size);
     } else if (!content) {
         SDL_strlcpy(error, "Cleanup service returned no message content", error_size);
@@ -172,39 +172,45 @@ char *eh_remote_clean(const char *transcript, const eh_jv *cleanup, eh_signal *s
             SDL_strlcpy(error, "Cleanup returned no usable text", error_size);
         }
     }
-    eh_jv_free(data);
+    gs_jval_free(data);
     return out;
 }
 
 static int compare_ids(const void *a, const void *b) {
-    const char *x = (*(eh_jv *const *)a)->string, *y = (*(eh_jv *const *)b)->string;
+    const char *x = *(const char *const *)a, *y = *(const char *const *)b;
     int c = SDL_strcasecmp(x, y);
     return c ? c : SDL_strcmp(x, y);
 }
 
-eh_jv *eh_remote_models(const eh_jv *cfg, eh_signal *signal, char *error, size_t error_size) {
+gs_jval *eh_remote_models(const gs_jval *cfg, eh_signal *signal, char *error, size_t error_size) {
     char url[1200], auth[600];
-    if (!service_url(eh_jv_string(eh_jv_get(cfg, "baseUrl"), ""), "/models", url, sizeof url, error, error_size)) return NULL;
+    if (!service_url(gs_jval_string(gs_jval_get(cfg, "baseUrl"), ""), "/models", url, sizeof url, error, error_size)) return NULL;
     const char *headers[3];
-    gs_http_request r = { .url = url, .headers = auth_headers(eh_jv_string(eh_jv_get(cfg, "apiKey"), ""), NULL, auth, sizeof auth, headers) };
-    eh_jv *body = request_json(&r, "Model list service", HTTP_TIMEOUT_MS, signal, error, error_size);
+    gs_http_request r = { .url = url, .headers = auth_headers(gs_jval_string(gs_jval_get(cfg, "apiKey"), ""), NULL, auth, sizeof auth, headers) };
+    gs_jval *body = request_json(&r, "Model list service", HTTP_TIMEOUT_MS, signal, error, error_size);
     if (!body) return NULL;
     // A list of ids, or of objects with an id, bare or under "data".
-    const eh_jv *list = body->type == EH_JV_ARRAY ? body : eh_jv_get(body, "data");
-    if (!list || list->type != EH_JV_ARRAY) {
+    const gs_jval *list = gs_jval_kind(body) == GS_JSON_ARRAY ? body : gs_jval_get(body, "data");
+    if (!list || gs_jval_kind(list) != GS_JSON_ARRAY) {
         SDL_strlcpy(error, "Model list service returned an unexpected /models reply", error_size);
-        eh_jv_free(body);
+        gs_jval_free(body);
         return NULL;
     }
-    eh_jv *ids = eh_jv_array();
-    for (int i = 0; i < list->count; i++) {
-        const eh_jv *m = list->items[i];
-        const char *id = m->type == EH_JV_STRING ? m->string : eh_jv_string(eh_jv_get(m, "id"), NULL);
+    // The ids once each, in order.
+    int total = gs_jval_count(list), n = 0;
+    const char **names = SDL_calloc((size_t)total + 1, sizeof *names);
+    for (int i = 0; i < total; i++) {
+        const gs_jval *m = gs_jval_at(list, i);
+        const char *id = gs_jval_string(m, NULL);
+        if (!id) id = gs_jval_string(gs_jval_get(m, "id"), NULL);
         bool known = !id || !*id;
-        for (int k = 0; !known && k < ids->count; k++) known = !SDL_strcmp(ids->items[k]->string, id);
-        if (!known) eh_jv_push(ids, eh_jv_str(id));
+        for (int k = 0; !known && k < n; k++) known = !SDL_strcmp(names[k], id);
+        if (!known) names[n++] = id;
     }
-    SDL_qsort(ids->items, (size_t)ids->count, sizeof *ids->items, compare_ids);
-    eh_jv_free(body);
+    SDL_qsort(names, (size_t)n, sizeof *names, compare_ids);
+    gs_jval *ids = gs_jval_array();
+    for (int i = 0; i < n; i++) gs_jval_push(ids, gs_jval_str(names[i]));
+    SDL_free(names);
+    gs_jval_free(body);
     return ids;
 }

@@ -443,10 +443,10 @@ void eh_hotkeys_apply_raw(const char *record, const char *pause, const char *dis
     if (was) suspend(true);
 }
 
-void eh_hotkeys_apply(const eh_jv *settings, eh_hotkey_results *out) {
+void eh_hotkeys_apply(const gs_jval *settings, eh_hotkey_results *out) {
     static const char *const keys[EH_HK_COUNT] = { "hotkey", "pauseHotkey", "discardHotkey", "correctHotkey" };
     char want[EH_HK_COUNT][ACC];
-    for (int n = 0; n < EH_HK_COUNT; n++) SDL_strlcpy(want[n], eh_jv_string(eh_jv_get(settings, keys[n]), ""), ACC);
+    for (int n = 0; n < EH_HK_COUNT; n++) SDL_strlcpy(want[n], gs_jval_string(gs_jval_get(settings, keys[n]), ""), ACC);
     enter();
     eh_hotkey_results r;
     eh_hotkeys_apply_raw(want[0], want[1], want[2], want[3], r.r);

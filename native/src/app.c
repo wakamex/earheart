@@ -16,16 +16,16 @@ static struct {
 
 const eh_view *eh_app_view(void) { return &A.view; }
 
-static void tell(const char *kind, const char *a, const char *b, double number, const eh_jv *detail) {
+static void tell(const char *kind, const char *a, const char *b, double number, const gs_jval *detail) {
     if (A.observer) A.observer(kind, a, b, number, detail);
 }
 
 /* ---------------- what the pipeline tells the overlay ---------------- */
 
-static void set_status(const char *status, const eh_jv *detail) {
+static void set_status(const char *status, const gs_jval *detail) {
     SDL_strlcpy(A.view.status, status, sizeof A.view.status);
-    eh_jv_free(A.view.detail);
-    A.view.detail = detail ? eh_jv_clone(detail) : NULL;
+    gs_jval_free(A.view.detail);
+    A.view.detail = detail ? gs_jval_clone(detail) : NULL;
     // A status is a phase change: the bar starts over, and the transcript goes with the recording.
     A.view.phase[0] = 0;
     A.view.fraction = 0;
@@ -61,7 +61,7 @@ static void on_state_changed(eh_state state) { tell("state", state == EH_IDLE ? 
 
 /* ---------------- the recorder, as the pipeline drives it ---------------- */
 
-static void record_start(unsigned sid, const char *device_id, double max_seconds, bool chunks, bool display, const eh_jv *live_preview) {
+static void record_start(unsigned sid, const char *device_id, double max_seconds, bool chunks, bool display, const gs_jval *live_preview) {
     A.view.sid = sid;
     A.view.notice[0] = 0;
     SDL_free(A.view.raw);
@@ -80,7 +80,7 @@ static void record_discard(void) {
     else eh_pipeline_cancel();
 }
 
-static bool deliver(const char *text, const eh_jv *output, eh_signal *signal, eh_delivery *result, char *error, size_t error_size) {
+static bool deliver(const char *text, const gs_jval *output, eh_signal *signal, eh_delivery *result, char *error, size_t error_size) {
     if (A.deliver) return A.deliver(text, output, signal, result, error, error_size);
     SDL_strlcpy(error, "This build cannot deliver text yet", error_size);
     return false;
@@ -93,8 +93,8 @@ static void on_live(unsigned sid, const char *notice) {
 
 static void on_paused(unsigned sid, bool paused) { set_status(paused ? "paused" : "recording", NULL); }
 
-static void settings_changed(void *user, const eh_jv *previous, const eh_jv *current) {
-    eh_models_set_custom(eh_jv_get(current, "customModels"));
+static void settings_changed(void *user, const gs_jval *previous, const gs_jval *current) {
+    eh_models_set_custom(gs_jval_get(current, "customModels"));
     eh_pipeline_settings_changed();
 }
 
@@ -121,7 +121,7 @@ void eh_app_init(const char *data_dir, eh_observer *observer, eh_deliver_fn *del
     dirs[n++] = own_models;
     dirs[n++] = their_models;
     eh_models_set_dirs(dirs, n);
-    eh_models_set_custom(eh_jv_get(eh_settings(), "customModels"));
+    eh_models_set_custom(gs_jval_get(eh_settings(), "customModels"));
     eh_engines_init();
     static const eh_recorder_deps recorder = { eh_pipeline_captured, eh_pipeline_partial, eh_pipeline_record_cancelled, eh_pipeline_record_error, on_live, on_paused };
     eh_recorder_init(&recorder);

@@ -96,7 +96,7 @@ static void replace(bool remember) {
     if (!picked() || !*spelling || C.busy) { SDL_free(spelling); return; }
     if (remember) {
         char error[200];
-        eh_jv *list = eh_vocabulary_remember(eh_jv_path(eh_settings(), "cleanup.dictionary"), spelling, error, sizeof error);
+        gs_jval *list = eh_vocabulary_remember(gs_jval_path(eh_settings(), "cleanup.dictionary"), spelling, error, sizeof error);
         char save_error[200] = "";
         if (!list || !eh_setting_set("cleanup.dictionary", list, save_error, sizeof save_error)) {
             SDL_snprintf(C.status, sizeof C.status, "%s Your draft is still here; you can use Replace only.", list ? save_error : error);
@@ -152,8 +152,8 @@ static void undo(void) {
 static void copy_task(void *arg) {
     char *text = arg, error[256] = "";
     eh_delivery result;
-    eh_jv *output = eh_jv_object();
-    eh_jv_set(output, "mode", eh_jv_str("clipboard"));
+    gs_jval *output = gs_jval_object();
+    gs_jval_set(output, "mode", gs_jval_str("clipboard"));
     bool has_text = false;
     for (const char *p = text; *p && !has_text; p++) has_text = *p != ' ' && *p != '\n' && *p != '\t' && *p != '\r';
     if (eh_pipeline_state() == EH_PROCESSING) SDL_strlcpy(error, "Wait for the current dictation to finish processing before copying a transcript.", sizeof error);
@@ -161,7 +161,7 @@ static void copy_task(void *arg) {
     else if (eh_deliver(text, output, NULL, &result, error, sizeof error)) C.copied = true;
     if (!C.copied) SDL_snprintf(C.status, sizeof C.status, "Could not copy: %s. Your draft is still here.", error);
     C.busy = false;
-    eh_jv_free(output);
+    gs_jval_free(output);
     SDL_free(text);
 }
 

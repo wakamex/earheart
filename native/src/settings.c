@@ -8,14 +8,14 @@
 
 static struct {
     char *path;
-    eh_jv *defaults, *current;
+    gs_jval *defaults, *current;
     bool first_run;
     struct { eh_settings_listener *fn; void *user; } listeners[8];
     int listener_count;
 } S;
 
-static eh_jv *defaults(void) {
-    if (!S.defaults) S.defaults = eh_jv_parse(eh_defaults_json, sizeof eh_defaults_json - 1);
+static gs_jval *defaults(void) {
+    if (!S.defaults) S.defaults = gs_jval_parse(eh_defaults_json, sizeof eh_defaults_json - 1);
     return S.defaults;
 }
 
@@ -53,57 +53,57 @@ static char *unwrap_prompt(const char *text) {
     return out;
 }
 
-static void migrate(eh_jv *stored) {
-    eh_jv *stt = eh_jv_get(stored, "stt"), *cleanup = eh_jv_get(stored, "cleanup");
-    if (stt && stt->type == EH_JV_OBJECT) {
+static void migrate(gs_jval *stored) {
+    gs_jval *stt = gs_jval_get(stored, "stt"), *cleanup = gs_jval_get(stored, "cleanup");
+    if (stt && gs_jval_kind(stt) == GS_JSON_OBJECT) {
         // A section saved before there was a built-in engine meant the remote one.
-        const char *engine = eh_jv_string(eh_jv_get(stt, "engine"), NULL);
-        if (!eh_jv_get(stt, "engine") || (engine && !SDL_strcmp(engine, "server"))) eh_jv_set(stt, "engine", eh_jv_str("remote"));
-        if (eh_jv_number(eh_jv_path(stt, "livePreview.chunkSeconds"), 0) == 5) eh_jv_set_path(stt, "livePreview.chunkSeconds", eh_jv_num(10));
+        const char *engine = gs_jval_string(gs_jval_get(stt, "engine"), NULL);
+        if (!gs_jval_get(stt, "engine") || (engine && !SDL_strcmp(engine, "server"))) gs_jval_set(stt, "engine", gs_jval_str("remote"));
+        if (gs_jval_number(gs_jval_path(stt, "livePreview.chunkSeconds"), 0) == 5) gs_jval_set_path(stt, "livePreview.chunkSeconds", gs_jval_num(10));
     }
-    eh_jv_remove(stored, "sttServer");
-    if (cleanup && cleanup->type == EH_JV_OBJECT) {
-        if (!eh_jv_get(cleanup, "engine")) eh_jv_set(cleanup, "engine", eh_jv_str("remote"));
-        if (eh_jv_number(eh_jv_get(cleanup, "timeoutMs"), 0) == 60000) eh_jv_set(cleanup, "timeoutMs", eh_jv_num(120000));
-        const char *prompt = eh_jv_string(eh_jv_get(cleanup, "systemPrompt"), NULL), *current = eh_jv_string(eh_jv_path(defaults(), "cleanup.systemPrompt"), "");
+    gs_jval_remove(stored, "sttServer");
+    if (cleanup && gs_jval_kind(cleanup) == GS_JSON_OBJECT) {
+        if (!gs_jval_get(cleanup, "engine")) gs_jval_set(cleanup, "engine", gs_jval_str("remote"));
+        if (gs_jval_number(gs_jval_get(cleanup, "timeoutMs"), 0) == 60000) gs_jval_set(cleanup, "timeoutMs", gs_jval_num(120000));
+        const char *prompt = gs_jval_string(gs_jval_get(cleanup, "systemPrompt"), NULL), *current = gs_jval_string(gs_jval_path(defaults(), "cleanup.systemPrompt"), "");
         if (prompt) {
             char *unwrapped = unwrap_prompt(prompt);
-            if (!SDL_strcmp(unwrapped, current)) eh_jv_set(cleanup, "systemPrompt", eh_jv_str(current));
+            if (!SDL_strcmp(unwrapped, current)) gs_jval_set(cleanup, "systemPrompt", gs_jval_str(current));
             SDL_free(unwrapped);
         }
         // A bare temperature from before styles existed becomes the custom style with nothing else filtering.
-        eh_jv *temperature = eh_jv_get(cleanup, "temperature");
-        if (!eh_jv_get(cleanup, "style") && temperature) {
-            eh_jv *custom = eh_jv_object();
-            eh_jv_set(custom, "temperature", eh_jv_clone(temperature));
-            eh_jv_set(custom, "topP", eh_jv_num(EH_NEUTRAL_TOP_P));
-            eh_jv_set(custom, "topK", eh_jv_num(EH_NEUTRAL_TOP_K));
-            eh_jv_set(custom, "minP", eh_jv_num(EH_NEUTRAL_MIN_P));
-            eh_jv_set(cleanup, "style", eh_jv_str("custom"));
-            eh_jv_set(cleanup, "custom", custom);
-            eh_jv_remove(cleanup, "temperature");
+        gs_jval *temperature = gs_jval_get(cleanup, "temperature");
+        if (!gs_jval_get(cleanup, "style") && temperature) {
+            gs_jval *custom = gs_jval_object();
+            gs_jval_set(custom, "temperature", gs_jval_clone(temperature));
+            gs_jval_set(custom, "topP", gs_jval_num(EH_NEUTRAL_TOP_P));
+            gs_jval_set(custom, "topK", gs_jval_num(EH_NEUTRAL_TOP_K));
+            gs_jval_set(custom, "minP", gs_jval_num(EH_NEUTRAL_MIN_P));
+            gs_jval_set(cleanup, "style", gs_jval_str("custom"));
+            gs_jval_set(cleanup, "custom", custom);
+            gs_jval_remove(cleanup, "temperature");
         }
     }
 }
 
-static void clamp(eh_jv *merged, const char *path, double min, double max) {
-    eh_jv *v = eh_jv_path(merged, path);
-    double n = eh_jv_number(v, NAN);
-    eh_jv_set_path(merged, path, isfinite(n) ? eh_jv_num(floor(SDL_min(max, SDL_max(min, n)) + 0.5)) : eh_jv_clone(eh_jv_path(defaults(), path)));
+static void clamp(gs_jval *merged, const char *path, double min, double max) {
+    gs_jval *v = gs_jval_path(merged, path);
+    double n = gs_jval_number(v, NAN);
+    gs_jval_set_path(merged, path, isfinite(n) ? gs_jval_num(floor(SDL_min(max, SDL_max(min, n)) + 0.5)) : gs_jval_clone(gs_jval_path(defaults(), path)));
 }
 
-static eh_jv *merged_over_defaults(const eh_jv *next) {
-    eh_jv *merged = eh_jv_merge(defaults(), next);
+static gs_jval *merged_over_defaults(const gs_jval *next) {
+    gs_jval *merged = gs_jval_merge(defaults(), next);
     clamp(merged, "audio.maxRecordingSeconds", 10, 3600);
     clamp(merged, "engines.idleUnloadMinutes", 0, 240);
     return merged;
 }
 
-eh_jv *eh_settings_resolve(const eh_jv *stored) {
-    eh_jv *copy = eh_jv_clone(stored);
-    if (copy->type == EH_JV_OBJECT) migrate(copy);
-    eh_jv *merged = merged_over_defaults(copy);
-    eh_jv_free(copy);
+gs_jval *eh_settings_resolve(const gs_jval *stored) {
+    gs_jval *copy = gs_jval_clone(stored);
+    if (gs_jval_kind(copy) == GS_JSON_OBJECT) migrate(copy);
+    gs_jval *merged = merged_over_defaults(copy);
+    gs_jval_free(copy);
     return merged;
 }
 
@@ -111,14 +111,14 @@ eh_jv *eh_settings_resolve(const eh_jv *stored) {
 
 // The file's content as an object, or NULL. A file that is not a JSON object is moved aside, so
 // the next save cannot overwrite what the user had.
-static eh_jv *read_stored(const char *path) {
+static gs_jval *read_stored(const char *path) {
     size_t len;
     char *text = SDL_LoadFile(path, &len);
     if (!text) return NULL;
-    eh_jv *parsed = eh_jv_parse(text, len);
+    gs_jval *parsed = gs_jval_parse(text, len);
     SDL_free(text);
-    if (parsed && parsed->type == EH_JV_OBJECT) return parsed;
-    eh_jv_free(parsed);
+    if (parsed && gs_jval_kind(parsed) == GS_JSON_OBJECT) return parsed;
+    gs_jval_free(parsed);
     char backup[1200];
     SDL_snprintf(backup, sizeof backup, "%s.corrupt-%lld", path, (long long)SDL_GetTicksNS());
     if (SDL_RenamePath(path, backup)) SDL_Log("settings file was not valid JSON; preserved it at %s and started from defaults", backup);
@@ -128,47 +128,47 @@ static eh_jv *read_stored(const char *path) {
 
 void eh_settings_init(const char *path, const char *import_from) {
     SDL_free(S.path);
-    eh_jv_free(S.current);
+    gs_jval_free(S.current);
     S.path = SDL_strdup(path);
     bool exists = SDL_GetPathInfo(path, NULL);
-    eh_jv *stored = exists ? read_stored(path) : NULL;
+    gs_jval *stored = exists ? read_stored(path) : NULL;
     bool imported = false;
     if (!exists && import_from && SDL_GetPathInfo(import_from, NULL)) {
         // The Electron build's settings. Its API keys are encrypted for that program alone and
         // cannot be read here; they are entered again.
         size_t len;
         char *text = SDL_LoadFile(import_from, &len);
-        stored = text ? eh_jv_parse(text, len) : NULL;
+        stored = text ? gs_jval_parse(text, len) : NULL;
         SDL_free(text);
-        if (stored && stored->type == EH_JV_OBJECT) {
+        if (stored && gs_jval_kind(stored) == GS_JSON_OBJECT) {
             static const char *const sections[] = { "stt", "cleanup" };
             for (int i = 0; i < 2; i++) {
-                eh_jv *section = eh_jv_get(stored, sections[i]);
-                if (section && section->type == EH_JV_OBJECT) eh_jv_remove(section, "apiKeyEncrypted");
+                gs_jval *section = gs_jval_get(stored, sections[i]);
+                if (section && gs_jval_kind(section) == GS_JSON_OBJECT) gs_jval_remove(section, "apiKeyEncrypted");
             }
             imported = true;
         } else {
-            eh_jv_free(stored);
+            gs_jval_free(stored);
             stored = NULL;
         }
     }
-    eh_jv *empty = eh_jv_object();
+    gs_jval *empty = gs_jval_object();
     S.current = eh_settings_resolve(stored ? stored : empty);
-    eh_jv_free(empty);
-    eh_jv_free(stored);
+    gs_jval_free(empty);
+    gs_jval_free(stored);
     S.first_run = !exists && !imported;
     if (imported) {
         char error[256];
-        if (!eh_settings_save(eh_jv_clone(S.current), error, sizeof error)) SDL_Log("the imported settings could not be saved: %s", error);
+        if (!eh_settings_save(gs_jval_clone(S.current), error, sizeof error)) SDL_Log("the imported settings could not be saved: %s", error);
         else SDL_Log("took over the settings of the Electron build from %s", import_from);
     }
 }
 
 bool eh_settings_first_run(void) { return S.first_run; }
-const eh_jv *eh_settings(void) { return S.current; }
-const char *eh_setting_str(const char *path) { return eh_jv_string(eh_jv_path(S.current, path), ""); }
-double eh_setting_num(const char *path) { return eh_jv_number(eh_jv_path(S.current, path), 0); }
-bool eh_setting_bool(const char *path) { return eh_jv_boolean(eh_jv_path(S.current, path), false); }
+const gs_jval *eh_settings(void) { return S.current; }
+const char *eh_setting_str(const char *path) { return gs_jval_string(gs_jval_path(S.current, path), ""); }
+double eh_setting_num(const char *path) { return gs_jval_number(gs_jval_path(S.current, path), 0); }
+bool eh_setting_bool(const char *path) { return gs_jval_boolean(gs_jval_path(S.current, path), false); }
 
 void eh_settings_on_changed(eh_settings_listener *fn, void *user) {
     if (S.listener_count < (int)SDL_arraysize(S.listeners)) {
@@ -177,45 +177,45 @@ void eh_settings_on_changed(eh_settings_listener *fn, void *user) {
     }
 }
 
-bool eh_settings_save(eh_jv *next, char *error, size_t error_size) {
-    eh_jv *merged = merged_over_defaults(next);
-    eh_jv_free(next);
-    char *text = eh_jv_write(merged, true);
+bool eh_settings_save(gs_jval *next, char *error, size_t error_size) {
+    gs_jval *merged = merged_over_defaults(next);
+    gs_jval_free(next);
+    char *text = gs_jval_write(merged, true);
     bool ok = eh_write_file_atomic(S.path, text, SDL_strlen(text), error, error_size);
     SDL_free(text);
-    if (!ok) { eh_jv_free(merged); return false; }
-    eh_jv *previous = S.current;
+    if (!ok) { gs_jval_free(merged); return false; }
+    gs_jval *previous = S.current;
     S.current = merged;
     S.first_run = false;
     for (int i = 0; i < S.listener_count; i++) S.listeners[i].fn(S.listeners[i].user, previous, S.current);
-    eh_jv_free(previous);
+    gs_jval_free(previous);
     return true;
 }
 
-bool eh_setting_set(const char *path, eh_jv *value, char *error, size_t error_size) {
-    eh_jv *next = eh_jv_clone(S.current);
-    eh_jv_set_path(next, path, value);
+bool eh_setting_set(const char *path, gs_jval *value, char *error, size_t error_size) {
+    gs_jval *next = gs_jval_clone(S.current);
+    gs_jval_set_path(next, path, value);
     return eh_settings_save(next, error, error_size);
 }
 
 /* ---------------- cleanup ---------------- */
 
-eh_cleanup_plan eh_resolve_cleanup(const eh_jv *cleanup) {
+eh_cleanup_plan eh_resolve_cleanup(const gs_jval *cleanup) {
     eh_cleanup_plan plan = { .sampling = { .temperature = -1, .top_p = -1 } };
     // The base prompt, then the user's preferred terms, which apply in every style.
     size_t cap = 4096, n = 0;
     char *prompt = SDL_malloc(cap);
 #define ADD(text) do { const char *t_ = (text); size_t l_ = SDL_strlen(t_); if (n + l_ + 1 > cap) prompt = SDL_realloc(prompt, cap = (cap + l_) * 2); SDL_memcpy(prompt + n, t_, l_); n += l_; prompt[n] = 0; } while (0)
     prompt[0] = 0;
-    ADD(eh_jv_string(eh_jv_get(cleanup, "systemPrompt"), ""));
-    eh_jv *terms = eh_jv_get(cleanup, "dictionary");
+    ADD(gs_jval_string(gs_jval_get(cleanup, "systemPrompt"), ""));
+    gs_jval *terms = gs_jval_get(cleanup, "dictionary");
     bool any = false;
-    for (int i = 0; i < eh_jv_count(terms); i++) {
-        const eh_jv *item = eh_jv_at(terms, i);
+    for (int i = 0; i < gs_jval_count(terms); i++) {
+        const gs_jval *item = gs_jval_at(terms, i);
         char number[40];
-        const char *raw = item->type == EH_JV_STRING ? item->string : NULL;
-        if (item->type == EH_JV_NUMBER) { SDL_snprintf(number, sizeof number, "%.15g", item->number); raw = number; }
-        if (item->type == EH_JV_BOOL) raw = item->boolean ? "true" : "false";
+        const char *raw = gs_jval_kind(item) == GS_JSON_STRING ? gs_jval_string(item, "") : NULL;
+        if (gs_jval_kind(item) == GS_JSON_NUMBER) { SDL_snprintf(number, sizeof number, "%.15g", gs_jval_number(item, 0)); raw = number; }
+        if (gs_jval_kind(item) == GS_JSON_BOOL) raw = gs_jval_boolean(item, false) ? "true" : "false";
         char *term = eh_trim(raw ? raw : "");
         if (*term) {
             if (!any)
@@ -228,15 +228,15 @@ eh_cleanup_plan eh_resolve_cleanup(const eh_jv *cleanup) {
         }
         SDL_free(term);
     }
-    const char *style = eh_jv_string(eh_jv_get(cleanup, "style"), "");
+    const char *style = gs_jval_string(gs_jval_get(cleanup, "style"), "");
     if (!SDL_strcmp(style, "custom")) {
-        const eh_jv *custom = eh_jv_get(cleanup, "custom");
-        plan.has_temperature = eh_jv_get(custom, "temperature") && eh_jv_get(custom, "temperature")->type == EH_JV_NUMBER;
-        plan.has_top_p = eh_jv_get(custom, "topP") && eh_jv_get(custom, "topP")->type == EH_JV_NUMBER;
-        plan.sampling.temperature = (float)eh_jv_number(eh_jv_get(custom, "temperature"), -1);
-        plan.sampling.top_p = (float)eh_jv_number(eh_jv_get(custom, "topP"), -1);
-        plan.sampling.top_k = (int)eh_jv_number(eh_jv_get(custom, "topK"), 0);
-        plan.sampling.min_p = (float)eh_jv_number(eh_jv_get(custom, "minP"), 0);
+        const gs_jval *custom = gs_jval_get(cleanup, "custom");
+        plan.has_temperature = gs_jval_kind(gs_jval_get(custom, "temperature")) == GS_JSON_NUMBER;
+        plan.has_top_p = gs_jval_kind(gs_jval_get(custom, "topP")) == GS_JSON_NUMBER;
+        plan.sampling.temperature = (float)gs_jval_number(gs_jval_get(custom, "temperature"), -1);
+        plan.sampling.top_p = (float)gs_jval_number(gs_jval_get(custom, "topP"), -1);
+        plan.sampling.top_k = (int)gs_jval_number(gs_jval_get(custom, "topK"), 0);
+        plan.sampling.min_p = (float)gs_jval_number(gs_jval_get(custom, "minP"), 0);
     } else {
         // An unknown style is the default one.
         size_t pick = 0, fallback = 0;

@@ -47,7 +47,7 @@ static void reset(void) {
     P.chunk_count = 0;
 }
 
-typedef struct { unsigned sid; eh_jv *settings; eh_signal *signal; } pass;
+typedef struct { unsigned sid; gs_jval *settings; eh_signal *signal; } pass;
 static void drop_pending_pass(void);
 
 void eh_preview_cancel(void) {
@@ -94,10 +94,10 @@ static void add_chunk(int from, int to, const char *text) {
 
 /* ---------------- cleanup of the committed text ---------------- */
 
-static void schedule_cleanup(unsigned sid, const eh_jv *settings, eh_signal *signal);
+static void schedule_cleanup(unsigned sid, const gs_jval *settings, eh_signal *signal);
 
 static void free_pass(pass *p) {
-    eh_jv_free(p->settings);
+    gs_jval_free(p->settings);
     eh_signal_unref(p->signal);
     SDL_free(p);
 }
@@ -122,7 +122,7 @@ static void cleanup_pass(void *user) {
     }
     P.cleanup_busy = true;
     char error[256];
-    char *cleaned = P.deps.clean(target, eh_jv_get(p->settings, "cleanup"), p->signal, error, sizeof error);
+    char *cleaned = P.deps.clean(target, gs_jval_get(p->settings, "cleanup"), p->signal, error, sizeof error);
     // A failed pass is cosmetic: the raw tail stays showing, and the next pause cleans again.
     if (cleaned && !stale(p->sid, p->signal)) {
         char *text = eh_trim(cleaned);
@@ -143,16 +143,16 @@ static void cleanup_pass(void *user) {
     free_pass(p);
 }
 
-static void schedule_cleanup(unsigned sid, const eh_jv *settings, eh_signal *signal) {
+static void schedule_cleanup(unsigned sid, const gs_jval *settings, eh_signal *signal) {
     // Live cleaning only when cleanup is on and runs on this computer: a remote service is not
     // to be hit over and over mid-dictation. The final pass cleans whatever the engine.
-    if (!eh_jv_boolean(eh_jv_path(settings, "cleanup.enabled"), false) || SDL_strcmp(eh_jv_string(eh_jv_path(settings, "cleanup.engine"), ""), "builtin")) return;
+    if (!gs_jval_boolean(gs_jval_path(settings, "cleanup.enabled"), false) || SDL_strcmp(gs_jval_string(gs_jval_path(settings, "cleanup.engine"), ""), "builtin")) return;
     drop_pending_pass();
     pass *p = SDL_calloc(1, sizeof *p);
     p->sid = sid;
-    p->settings = eh_jv_clone(settings);
+    p->settings = gs_jval_clone(settings);
     p->signal = eh_signal_ref(signal);
-    double pause_ms = eh_jv_number(eh_jv_path(settings, "stt.livePreview.cleanupPauseMs"), 0);
+    double pause_ms = gs_jval_number(gs_jval_path(settings, "stt.livePreview.cleanupPauseMs"), 0);
     P.pending_pass = p;
     P.pause_timer = eh_after(pause_ms > 0 ? (int)pause_ms : 1000, cleanup_pass, p);
 }
@@ -165,18 +165,18 @@ typedef struct {
     bool final;
     uint8_t *wav;
     size_t len;
-    eh_jv *cfg;
+    gs_jval *cfg;
     eh_signal *signal;
 } chunk;
 
 static void handle_audio(void *user) {
     chunk *c = user;
-    eh_jv *cfg = c->cfg;
+    gs_jval *cfg = c->cfg;
     eh_signal *signal = c->signal;
     // The display is optional; the chunk decodes that feed the final assembly are not.
-    bool display = eh_jv_boolean(eh_jv_path(cfg, "stt.livePreview.enabled"), false);
+    bool display = gs_jval_boolean(gs_jval_path(cfg, "stt.livePreview.enabled"), false);
     char error[256] = "", *partial_text = NULL;
-    char *raw = P.deps.transcribe(c->wav, c->len, eh_jv_get(cfg, "stt"), signal, &partial_text, error, sizeof error);
+    char *raw = P.deps.transcribe(c->wav, c->len, gs_jval_get(cfg, "stt"), signal, &partial_text, error, sizeof error);
     int frames = eh_wav_frames(c->wav, c->len);
     if (raw && !stale(c->sid, signal)) {
         set(&P.last_error, NULL);  // a decode succeeded; let the next failure surface
@@ -237,23 +237,23 @@ static void handle_audio(void *user) {
     SDL_free(raw);
     SDL_free(partial_text);
     eh_signal_unref(signal);
-    eh_jv_free(cfg);
+    gs_jval_free(cfg);
     SDL_free(c->wav);
     SDL_free(c);
 }
 
 void eh_preview_audio(unsigned sid, int seq, bool final, int from_sample, int has_speech, uint8_t *wav, size_t len) {
-    const eh_jv *live = eh_settings();
+    const gs_jval *live = eh_settings();
     // Drop-if-busy applies to in-progress ticks only. A final chunk is sent exactly once, and
     // dropping it would punch a hole in the committed transcript, so it always decodes.
-    if (!P.deps.is_current(sid) || SDL_strcmp(eh_jv_string(eh_jv_path(live, "stt.engine"), ""), "builtin") || (P.stt_in_flight > 0 && !final)) {
+    if (!P.deps.is_current(sid) || SDL_strcmp(gs_jval_string(gs_jval_path(live, "stt.engine"), ""), "builtin") || (P.stt_in_flight > 0 && !final)) {
         SDL_free(wav);
         return;
     }
     if (!P.signal) P.signal = eh_signal_new();
     P.stt_in_flight++;
     chunk *c = SDL_calloc(1, sizeof *c);
-    *c = (chunk){ sid, seq, from_sample, has_speech, final, wav, len, eh_jv_clone(live), eh_signal_ref(P.signal) };
+    *c = (chunk){ sid, seq, from_sample, has_speech, final, wav, len, gs_jval_clone(live), eh_signal_ref(P.signal) };
     // The decode is a task of its own; tasks start in the order they are spawned, so chunks reach
     // the engine in the order they were recorded.
     eh_spawn(handle_audio, c);

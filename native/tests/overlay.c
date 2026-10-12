@@ -15,8 +15,8 @@ static int cap;
 
 static void say(const char *status, const char *detail_json) {
     SDL_strlcpy(V.status, status, sizeof V.status);
-    eh_jv_free(V.detail);
-    V.detail = detail_json ? eh_jv_parse(detail_json, strlen(detail_json)) : NULL;
+    gs_jval_free(V.detail);
+    V.detail = detail_json ? gs_jval_parse(detail_json, strlen(detail_json)) : NULL;
     V.phase[0] = 0;
     V.fraction = 0;
 }
@@ -214,7 +214,7 @@ void test_overlay(void) {
     step(16);
     CHECK(M.level_count == 0 && !strcmp(M.timer, "0:00"));
 
-    eh_jv_free(V.detail);
+    gs_jval_free(V.detail);
     V.detail = NULL;
     eh_overlay_reset();
 }

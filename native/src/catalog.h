@@ -30,8 +30,8 @@ int eh_models_list(eh_model_kind kind, const eh_model **out, int max);
 // The user's own models, from the settings' customModels. A definition whose id or file names
 // could reach outside its folder is left out. A model already known under the same definition
 // keeps its eh_model, so pointers to it stay good.
-struct eh_jv;
-void eh_models_set_custom(const struct eh_jv *list);
+struct gs_jval;
+void eh_models_set_custom(const struct gs_jval *list);
 // False for a name that is not safe as one part of a path on any system.
 bool eh_path_segment(const char *value);
 const char *eh_model_kind_dir(eh_model_kind kind);                    // "stt" or "cleanup", the folder under models/

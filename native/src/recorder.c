@@ -251,7 +251,7 @@ static void watchdog(void *user) {
     R.deps.error(sid, "Microphone did not deliver audio in time — check the input device in Settings");
 }
 
-void eh_recorder_start(unsigned sid, const char *device_id, double max_seconds, bool chunks, bool display, const eh_jv *live_preview) {
+void eh_recorder_start(unsigned sid, const char *device_id, double max_seconds, bool chunks, bool display, const gs_jval *live_preview) {
     recording *old = teardown(false);
     if (old) free_recording(old);
     recording *rec = SDL_calloc(1, sizeof *rec);
@@ -260,9 +260,9 @@ void eh_recorder_start(unsigned sid, const char *device_id, double max_seconds, 
     rec->max_seconds = seconds >= 10 && seconds <= 3600 ? (int)seconds : 600;
     rec->chunks = chunks;
     rec->display = display;
-    double interval = eh_jv_number(eh_jv_get(live_preview, "intervalMs"), 0);
+    double interval = gs_jval_number(gs_jval_get(live_preview, "intervalMs"), 0);
     rec->interval_ms = interval > 0 ? (int)interval : 1200;
-    rec->chunk_seconds = eh_jv_number(eh_jv_get(live_preview, "chunkSeconds"), 0);
+    rec->chunk_seconds = gs_jval_number(gs_jval_get(live_preview, "chunkSeconds"), 0);
     char error[256];
     R.rec = rec;
     if (!open_source(rec, device_id, error, sizeof error)) {

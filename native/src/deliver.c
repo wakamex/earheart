@@ -60,7 +60,7 @@ static void restore_task(void *user) {
     SDL_free(text);
 }
 
-bool eh_deliver(const char *text, const eh_jv *output, eh_signal *signal, eh_delivery *result, char *error, size_t error_size) {
+bool eh_deliver(const char *text, const gs_jval *output, eh_signal *signal, eh_delivery *result, char *error, size_t error_size) {
     *result = (eh_delivery){ 0 };
     if (eh_signal_aborted(signal)) { SDL_strlcpy(result->method, "cancelled", sizeof result->method); return true; }
     // A restore still pending from the dictation before runs now, so this one's snapshot is of
@@ -69,9 +69,9 @@ bool eh_deliver(const char *text, const eh_jv *output, eh_signal *signal, eh_del
         eh_cancel(D.timer);
         restore_task(NULL);
     }
-    const char *mode = eh_jv_string(eh_jv_get(output, "mode"), "paste");
+    const char *mode = gs_jval_string(gs_jval_get(output, "mode"), "paste");
     bool paste_only = !SDL_strcmp(mode, "paste"), pasting = paste_only || !SDL_strcmp(mode, "paste-copy");
-    clipboard_job j = { .text = text, .take = paste_only && eh_jv_boolean(eh_jv_get(output, "restoreClipboard"), true) };
+    clipboard_job j = { .text = text, .take = paste_only && gs_jval_boolean(gs_jval_get(output, "restoreClipboard"), true) };
     on_main(&j);
     gs_clip *previous = j.snap;
     if (!j.ok) {
@@ -82,7 +82,7 @@ bool eh_deliver(const char *text, const eh_jv *output, eh_signal *signal, eh_del
     SDL_strlcpy(result->method, "clipboard", sizeof result->method);
     if (!pasting) return true;
 
-    double delay = eh_jv_number(eh_jv_get(output, "pasteDelayMs"), 150);
+    double delay = gs_jval_number(gs_jval_get(output, "pasteDelayMs"), 150);
     EH_AWAIT(SDL_Delay((Uint32)SDL_max(0, delay)));
     if (eh_signal_aborted(signal)) {
         if (previous) restore_if_unchanged(previous, text);

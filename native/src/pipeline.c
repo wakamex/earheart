@@ -41,10 +41,10 @@ static void rtf_load(void) {
     P.rtf = rtf_clamp(RTF_INITIAL);
     size_t len;
     char *text = SDL_LoadFile(P.rtf_path, &len);
-    eh_jv *stored = text ? eh_jv_parse(text, len) : NULL;
-    double value = eh_jv_number(eh_jv_get(stored, "rtf"), 0);
+    gs_jval *stored = text ? gs_jval_parse(text, len) : NULL;
+    double value = gs_jval_number(gs_jval_get(stored, "rtf"), 0);
     if (isfinite(value) && value > 0) P.rtf = rtf_clamp(value);
-    eh_jv_free(stored);
+    gs_jval_free(stored);
     SDL_free(text);
 }
 
@@ -53,12 +53,12 @@ static void rtf_record(double audio_sec, double elapsed_sec) {
     double next = rtf_clamp(P.rtf + RTF_ALPHA * (elapsed_sec / audio_sec - P.rtf));
     if (next == P.rtf) return;
     P.rtf = next;
-    eh_jv *o = eh_jv_object();
-    eh_jv_set(o, "rtf", eh_jv_num(next));
-    char *json = eh_jv_write(o, false), error[256];
+    gs_jval *o = gs_jval_object();
+    gs_jval_set(o, "rtf", gs_jval_num(next));
+    char *json = gs_jval_write(o, false), error[256];
     eh_write_file_atomic(P.rtf_path, json, SDL_strlen(json), error, sizeof error);  // losing a sample is harmless
     SDL_free(json);
-    eh_jv_free(o);
+    gs_jval_free(o);
 }
 
 static double rtf_progress_at(double elapsed_sec, double audio_sec) {
@@ -133,15 +133,15 @@ static void hide_overlay_soon(unsigned sid, int ms) {
 }
 
 static void error_status(const char *message) {
-    eh_jv *detail = eh_jv_object();
-    eh_jv_set(detail, "message", eh_jv_str(message));
+    gs_jval *detail = gs_jval_object();
+    gs_jval_set(detail, "message", gs_jval_str(message));
     P.deps.status("error", detail);
-    eh_jv_free(detail);
+    gs_jval_free(detail);
 }
 
 /* ---------------- decoding ---------------- */
 
-typedef struct { const eh_jv *stt; eh_signal *signal; unsigned sid; bool check_session; } decode_ctx;
+typedef struct { const gs_jval *stt; eh_signal *signal; unsigned sid; bool check_session; } decode_ctx;
 
 static eh_decode_code run_transcribe(void *user, const uint8_t *wav, size_t len, char **text, int *decode_ms, char *error, size_t error_size) {
     decode_ctx *c = user;
@@ -159,7 +159,7 @@ static bool decode_stale(void *user) {
 // reused verbatim in the final transcript, and a chunk holding two sentences is exactly what makes
 // the model drop one of them. A chunk that decodes only in part fails, so the preview marks its
 // snapshot broken and the final pass decodes that audio again.
-static char *transcribe_live(const uint8_t *wav, size_t len, const eh_jv *stt, eh_signal *signal, char **partial_text, char *error, size_t error_size) {
+static char *transcribe_live(const uint8_t *wav, size_t len, const gs_jval *stt, eh_signal *signal, char **partial_text, char *error, size_t error_size) {
     decode_ctx ctx = { stt, signal, 0, false };
     eh_chunked o = { .run = run_transcribe, .user = &ctx, .restart_stt = restart_stt, .stale = decode_stale, .min_sound_sec = -1, .min_utterance_sec = -1 };
     eh_chunked_result r;
@@ -178,7 +178,7 @@ static char *transcribe_live(const uint8_t *wav, size_t len, const eh_jv *stt, e
     return text;
 }
 
-static char *clean_live(const char *raw, const eh_jv *cleanup, eh_signal *signal, char *error, size_t error_size) {
+static char *clean_live(const char *raw, const gs_jval *cleanup, eh_signal *signal, char *error, size_t error_size) {
     return eh_clean(raw, cleanup, signal, NULL, NULL, error, error_size);
 }
 
@@ -213,9 +213,9 @@ static void final_decode_ms(void *user, int ms) {
 // stays near constant however long the dictation ran. Otherwise the whole recording is decoded,
 // and a broken snapshot's words are salvage for the ranges that fail. False with `error` set when
 // nothing could be recovered.
-static bool transcribe_with_estimate(const uint8_t *wav, size_t len, const eh_jv *stt, unsigned sid, eh_signal *signal, eh_preview_snapshot *assembly,
+static bool transcribe_with_estimate(const uint8_t *wav, size_t len, const gs_jval *stt, unsigned sid, eh_signal *signal, eh_preview_snapshot *assembly,
                                      char **text, bool *partial, char *error, size_t error_size) {
-    bool builtin = !SDL_strcmp(eh_jv_string(eh_jv_get(stt, "engine"), ""), "builtin");
+    bool builtin = !SDL_strcmp(gs_jval_string(gs_jval_get(stt, "engine"), ""), "builtin");
     *text = NULL;
     *partial = false;
     const uint8_t *decode_wav = wav;
@@ -243,7 +243,7 @@ static bool transcribe_with_estimate(const uint8_t *wav, size_t len, const eh_jv
         // freeze the bar at its cap and poison the speed sample with time that is not decoding.
         // A load that fails can decode nothing, but the words the live preview already decoded
         // are still the user's: those are delivered.
-        if (!eh_ensure_stt(eh_jv_string(eh_jv_path(stt, "builtin.model"), ""), error, error_size)) {
+        if (!eh_ensure_stt(gs_jval_string(gs_jval_path(stt, "builtin.model"), ""), error, error_size)) {
             const char *recovered = *prefix ? prefix : salvage_text;
             if (*recovered) {
                 SDL_Log("STT model load failed; delivering the live-preview text: %s", error);
@@ -315,7 +315,7 @@ static void clean_progress(void *user, float fraction) {
 typedef struct {
     unsigned sid;
     eh_signal *signal;
-    eh_jv *cfg;
+    gs_jval *cfg;
     uint8_t *wav;
     size_t len;
     eh_preview_snapshot assembly;
@@ -326,11 +326,11 @@ static void process_task(void *user) {
     dictation *d = user;
     unsigned sid = d->sid;
     eh_signal *signal = d->signal;
-    const eh_jv *cfg = d->cfg, *cleanup = eh_jv_get(cfg, "cleanup");
+    const gs_jval *cfg = d->cfg, *cleanup = gs_jval_get(cfg, "cleanup");
     char error[256] = "", *raw = NULL, *text = NULL;
     bool partial = false, cleaned = false, delivered = false, failed = false;
 
-    failed = !transcribe_with_estimate(d->wav, d->len, eh_jv_get(cfg, "stt"), sid, signal, d->has_assembly ? &d->assembly : NULL, &raw, &partial, error, sizeof error);
+    failed = !transcribe_with_estimate(d->wav, d->len, gs_jval_get(cfg, "stt"), sid, signal, d->has_assembly ? &d->assembly : NULL, &raw, &partial, error, sizeof error);
     if (failed || stale(sid, signal)) goto done;
     if (!*raw) {
         P.deps.status("empty", NULL);
@@ -343,14 +343,14 @@ static void process_task(void *user) {
         SDL_Log("transcription incomplete: delivering the recovered text");
         notify("Earheart: transcription interrupted", "The speech engine stopped part-way; delivered the text recovered so far.");
     }
-    if (eh_jv_boolean(eh_jv_get(cleanup, "enabled"), false)) {
+    if (gs_jval_boolean(gs_jval_get(cleanup, "enabled"), false)) {
         P.deps.status("cleaning", NULL);
         clean_ctx cc = { sid, signal };
         char clean_error[256] = "";
         text = eh_clean(raw, cleanup, signal, clean_progress, &cc, clean_error, sizeof clean_error);
         if (text) {
             cleaned = true;
-            if (!SDL_strcmp(eh_jv_string(eh_jv_get(cleanup, "engine"), ""), "builtin") && !stale(sid, signal)) P.deps.progress("cleaning", 1);
+            if (!SDL_strcmp(gs_jval_string(gs_jval_get(cleanup, "engine"), ""), "builtin") && !stale(sid, signal)) P.deps.progress("cleaning", 1);
         } else if (!stale(sid, signal)) {
             // Cleanup is an enhancement, never a gate: the raw transcript becomes the text, and
             // the user is told why.
@@ -361,13 +361,13 @@ static void process_task(void *user) {
     }
     if (!text) text = SDL_strdup(raw);
     // History first: the final text is the user's as soon as it exists, whatever delivery does.
-    if (eh_jv_boolean(eh_jv_path(cfg, "history.enabled"), false)) {
-        eh_history_add(raw, text, cleaned, partial, (int)eh_jv_number(eh_jv_path(cfg, "history.limit"), 0));
+    if (gs_jval_boolean(gs_jval_path(cfg, "history.enabled"), false)) {
+        eh_history_add(raw, text, cleaned, partial, (int)gs_jval_number(gs_jval_path(cfg, "history.limit"), 0));
         if (P.deps.history_changed) P.deps.history_changed();
     }
     P.deps.status("delivering", NULL);
     eh_delivery result = { 0 };
-    if (!P.deps.deliver(text, eh_jv_get(cfg, "output"), signal, &result, error, sizeof error)) { failed = true; goto done; }
+    if (!P.deps.deliver(text, gs_jval_get(cfg, "output"), signal, &result, error, sizeof error)) { failed = true; goto done; }
     // The words are on the clipboard or pasted; nothing after this may say they were lost.
     delivered = true;
     if (stale(sid, signal)) goto done;
@@ -375,7 +375,7 @@ static void process_task(void *user) {
     // later; the full instruction needs somewhere to stay.
     if (result.hint[0]) notify("Earheart: auto-paste failed, copied to clipboard", result.hint);
     {
-        eh_jv *detail = eh_jv_object();
+        gs_jval *detail = gs_jval_object();
         // The first 120 characters, counted as JavaScript counts them, and an ellipsis.
         const char *p = text;
         int units = 0;
@@ -383,13 +383,13 @@ static void process_task(void *user) {
         char *preview = SDL_malloc((size_t)(p - text) + 8);
         SDL_memcpy(preview, text, (size_t)(p - text));
         SDL_strlcpy(preview + (p - text), *p ? "…" : "", 8);
-        eh_jv_set(detail, "preview", eh_jv_str(preview));
+        gs_jval_set(detail, "preview", gs_jval_str(preview));
         SDL_free(preview);
-        eh_jv_set(detail, "method", eh_jv_str(result.method));
-        eh_jv_set(detail, "note", eh_jv_str(result.note));
-        eh_jv_set(detail, "incomplete", eh_jv_bool(partial));
+        gs_jval_set(detail, "method", gs_jval_str(result.method));
+        gs_jval_set(detail, "note", gs_jval_str(result.note));
+        gs_jval_set(detail, "incomplete", gs_jval_bool(partial));
         P.deps.status("done", detail);
-        eh_jv_free(detail);
+        gs_jval_free(detail);
     }
     hide_overlay_soon(sid, result.note[0] ? 4000 : 1600);
 
@@ -418,7 +418,7 @@ done:
     SDL_free(text);
     if (d->has_assembly) eh_preview_snapshot_free(&d->assembly);
     eh_signal_unref(d->signal);
-    eh_jv_free(d->cfg);
+    gs_jval_free(d->cfg);
     SDL_free(d->wav);
     SDL_free(d);
 }
@@ -427,12 +427,12 @@ void eh_pipeline_captured(unsigned sid, uint8_t *wav, size_t len) {
     if (sid != P.session || P.state != EH_RECORDING) { SDL_free(wav); return; }
     dictation *d = SDL_calloc(1, sizeof *d);
     d->sid = sid;
-    d->cfg = eh_jv_clone(eh_settings());
+    d->cfg = gs_jval_clone(eh_settings());
     d->wav = wav;
     d->len = len;
     // The committed chunk decodes are read before the live preview is cancelled, which forgets
     // them: they are the final transcript's prefix.
-    d->has_assembly = !SDL_strcmp(eh_jv_string(eh_jv_path(d->cfg, "stt.engine"), ""), "builtin");
+    d->has_assembly = !SDL_strcmp(gs_jval_string(gs_jval_path(d->cfg, "stt.engine"), ""), "builtin");
     if (d->has_assembly) d->assembly = eh_preview_snapshot_final();
     // The final pass is authoritative; partial work must not contend with it on the workers.
     eh_preview_cancel();
@@ -440,8 +440,8 @@ void eh_pipeline_captured(unsigned sid, uint8_t *wav, size_t len) {
     eh_signal_unref(P.signal);
     P.signal = eh_signal_new();
     d->signal = eh_signal_ref(P.signal);
-    const eh_jv *cleanup = eh_jv_get(d->cfg, "cleanup");
-    if (eh_jv_boolean(eh_jv_get(cleanup, "enabled"), false) && !SDL_strcmp(eh_jv_string(eh_jv_get(cleanup, "engine"), ""), "builtin")) {
+    const gs_jval *cleanup = gs_jval_get(d->cfg, "cleanup");
+    if (gs_jval_boolean(gs_jval_get(cleanup, "enabled"), false) && !SDL_strcmp(gs_jval_string(gs_jval_get(cleanup, "engine"), ""), "builtin")) {
         // A live-preview clean still generating would make the final clean queue behind it.
         eh_cancel_clean();
         // The committed text is a known prefix of the final transcript, so its prompt can be
@@ -485,7 +485,7 @@ static void warm_stt(void *user) {
 }
 
 static void start_recording(void) {
-    const eh_jv *cfg = eh_settings(), *stt = eh_jv_get(cfg, "stt"), *cleanup = eh_jv_get(cfg, "cleanup");
+    const gs_jval *cfg = eh_settings(), *stt = gs_jval_get(cfg, "stt"), *cleanup = gs_jval_get(cfg, "cleanup");
     // A built-in model that is not on disk cannot transcribe this dictation: said now, before the
     // microphone opens, and not after the user has spoken. Asked on every press, so finishing the
     // download or switching engines works at once.
@@ -500,23 +500,23 @@ static void start_recording(void) {
     }
     unsigned sid = ++P.session;
     set_state(EH_RECORDING);
-    bool builtin = !SDL_strcmp(eh_jv_string(eh_jv_get(stt, "engine"), ""), "builtin");
-    bool live_on = builtin && eh_jv_boolean(eh_jv_path(stt, "livePreview.enabled"), false);
+    bool builtin = !SDL_strcmp(gs_jval_string(gs_jval_get(stt, "engine"), ""), "builtin");
+    bool live_on = builtin && gs_jval_boolean(gs_jval_path(stt, "livePreview.enabled"), false);
     // The models are warmed as recording begins, so their load time hides under the time the user
     // spends speaking. With live preview on this also keeps the first partials from all being
     // dropped while the model loads. Priming prefills the static start of the cleanup prompt.
     if (builtin) {
         warm *w = SDL_calloc(1, sizeof *w);
-        SDL_strlcpy(w->model, eh_jv_string(eh_jv_path(stt, "builtin.model"), ""), sizeof w->model);
+        SDL_strlcpy(w->model, gs_jval_string(gs_jval_path(stt, "builtin.model"), ""), sizeof w->model);
         eh_spawn(warm_stt, w);
     }
-    if (eh_jv_boolean(eh_jv_get(cleanup, "enabled"), false) && !SDL_strcmp(eh_jv_string(eh_jv_get(cleanup, "engine"), ""), "builtin")) eh_prime_cleanup(cleanup, "");
+    if (gs_jval_boolean(gs_jval_get(cleanup, "enabled"), false) && !SDL_strcmp(gs_jval_string(gs_jval_get(cleanup, "engine"), ""), "builtin")) eh_prime_cleanup(cleanup, "");
     P.deps.overlay_show(true);
     // Chunked partial decoding runs whenever speech is built in, since the committed chunks become
     // the final transcript's prefix; `display` also paints the live transcript and is the user's
     // toggle. A remote service gets neither: it would be hammered with repeated uploads.
-    P.deps.record_start(sid, eh_jv_string(eh_jv_path(cfg, "audio.deviceId"), ""), eh_jv_number(eh_jv_path(cfg, "audio.maxRecordingSeconds"), 600),
-                        builtin, live_on, eh_jv_get(stt, "livePreview"));
+    P.deps.record_start(sid, gs_jval_string(gs_jval_path(cfg, "audio.deviceId"), ""), gs_jval_number(gs_jval_path(cfg, "audio.maxRecordingSeconds"), 600),
+                        builtin, live_on, gs_jval_get(stt, "livePreview"));
 }
 
 void eh_pipeline_toggle(void) {

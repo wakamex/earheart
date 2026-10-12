@@ -56,7 +56,7 @@ typedef struct {
 
 static struct {
     eh_ui *ui;
-    eh_jv *base;                     // the settings the draft was filled from; fields not shown here pass through
+    gs_jval *base;                     // the settings the draft was filled from; fields not shown here pass through
     eh_form_baseline baseline;       // the shared fields as this window last saw them saved
     int section;                     // the index entry lit
     bool spy_held;                   // a jump is gliding: the index keeps the entry chosen
@@ -129,18 +129,18 @@ static const eh_model *model_at(eh_model_kind kind, int index) {
     return index >= 0 && index < n ? list[index] : NULL;
 }
 
-static int output_mode_of(const eh_jv *cfg) {
+static int output_mode_of(const gs_jval *cfg) {
     const char *mode = eh_displayed_output_mode(cfg);
     return !SDL_strcmp(mode, "clipboard") ? 2 : !SDL_strcmp(mode, "paste-copy") ? 1 : 0;
 }
 
 // A number as its shortest text that reads back as the same number.
-static void number_text(char *out, size_t size, const eh_jv *v) {
-    if (!v || v->type != EH_JV_NUMBER) { out[0] = 0; return; }
-    if (v->number == floor(v->number) && fabs(v->number) < 1e15) { SDL_snprintf(out, size, "%.0f", v->number); return; }
+static void number_text(char *out, size_t size, const gs_jval *v) {
+    if (!v || gs_jval_kind(v) != GS_JSON_NUMBER) { out[0] = 0; return; }
+    if (gs_jval_number(v, 0) == floor(gs_jval_number(v, 0)) && fabs(gs_jval_number(v, 0)) < 1e15) { SDL_snprintf(out, size, "%.0f", gs_jval_number(v, 0)); return; }
     for (int digits = 1; digits <= 17; digits++) {
-        SDL_snprintf(out, size, "%.*g", digits, v->number);
-        if (SDL_strtod(out, NULL) == v->number) return;
+        SDL_snprintf(out, size, "%.*g", digits, gs_jval_number(v, 0));
+        if (SDL_strtod(out, NULL) == gs_jval_number(v, 0)) return;
     }
 }
 
@@ -170,43 +170,43 @@ static void load_microphones(void) {
 }
 
 static void populate(void) {
-    const eh_jv *c = W.base;
-    for (int i = 0; i < 4; i++) SDL_strlcpy(W.hotkeys[i], eh_jv_string(eh_jv_get(c, hotkey_paths[i]), ""), sizeof W.hotkeys[i]);
+    const gs_jval *c = W.base;
+    for (int i = 0; i < 4; i++) SDL_strlcpy(W.hotkeys[i], gs_jval_string(gs_jval_get(c, hotkey_paths[i]), ""), sizeof W.hotkeys[i]);
     W.output_mode = output_mode_of(c);
-    SDL_strlcpy(W.saved_mic, eh_jv_string(eh_jv_path(c, "audio.deviceId"), ""), sizeof W.saved_mic);
+    SDL_strlcpy(W.saved_mic, gs_jval_string(gs_jval_path(c, "audio.deviceId"), ""), sizeof W.saved_mic);
     load_microphones();
-    W.live_preview = eh_jv_boolean(eh_jv_path(c, "stt.livePreview.enabled"), true);
-    W.stt.engine = SDL_strcmp(eh_jv_string(eh_jv_path(c, "stt.engine"), "builtin"), "builtin") != 0;
-    W.stt.model = model_index(EH_MODEL_STT, eh_jv_string(eh_jv_path(c, "stt.builtin.model"), ""));
-    SDL_strlcpy(W.stt.url, eh_jv_string(eh_jv_path(c, "stt.baseUrl"), ""), sizeof W.stt.url);
-    SDL_strlcpy(W.stt.key, eh_jv_string(eh_jv_path(c, "stt.apiKey"), ""), sizeof W.stt.key);
-    SDL_strlcpy(W.stt.remote_model, eh_jv_string(eh_jv_path(c, "stt.model"), ""), sizeof W.stt.remote_model);
-    SDL_strlcpy(W.language, eh_jv_string(eh_jv_path(c, "stt.language"), ""), sizeof W.language);
-    W.cleanup_enabled = eh_jv_boolean(eh_jv_path(c, "cleanup.enabled"), true);
-    W.cleanup.engine = SDL_strcmp(eh_jv_string(eh_jv_path(c, "cleanup.engine"), "builtin"), "builtin") != 0;
-    W.cleanup.model = model_index(EH_MODEL_CLEANUP, eh_jv_string(eh_jv_path(c, "cleanup.builtin.model"), ""));
-    SDL_strlcpy(W.cleanup.url, eh_jv_string(eh_jv_path(c, "cleanup.baseUrl"), ""), sizeof W.cleanup.url);
-    SDL_strlcpy(W.cleanup.key, eh_jv_string(eh_jv_path(c, "cleanup.apiKey"), ""), sizeof W.cleanup.key);
-    SDL_strlcpy(W.cleanup.remote_model, eh_jv_string(eh_jv_path(c, "cleanup.model"), ""), sizeof W.cleanup.remote_model);
-    const char *style = eh_jv_string(eh_jv_path(c, "cleanup.style"), EH_DEFAULT_STYLE);
+    W.live_preview = gs_jval_boolean(gs_jval_path(c, "stt.livePreview.enabled"), true);
+    W.stt.engine = SDL_strcmp(gs_jval_string(gs_jval_path(c, "stt.engine"), "builtin"), "builtin") != 0;
+    W.stt.model = model_index(EH_MODEL_STT, gs_jval_string(gs_jval_path(c, "stt.builtin.model"), ""));
+    SDL_strlcpy(W.stt.url, gs_jval_string(gs_jval_path(c, "stt.baseUrl"), ""), sizeof W.stt.url);
+    SDL_strlcpy(W.stt.key, gs_jval_string(gs_jval_path(c, "stt.apiKey"), ""), sizeof W.stt.key);
+    SDL_strlcpy(W.stt.remote_model, gs_jval_string(gs_jval_path(c, "stt.model"), ""), sizeof W.stt.remote_model);
+    SDL_strlcpy(W.language, gs_jval_string(gs_jval_path(c, "stt.language"), ""), sizeof W.language);
+    W.cleanup_enabled = gs_jval_boolean(gs_jval_path(c, "cleanup.enabled"), true);
+    W.cleanup.engine = SDL_strcmp(gs_jval_string(gs_jval_path(c, "cleanup.engine"), "builtin"), "builtin") != 0;
+    W.cleanup.model = model_index(EH_MODEL_CLEANUP, gs_jval_string(gs_jval_path(c, "cleanup.builtin.model"), ""));
+    SDL_strlcpy(W.cleanup.url, gs_jval_string(gs_jval_path(c, "cleanup.baseUrl"), ""), sizeof W.cleanup.url);
+    SDL_strlcpy(W.cleanup.key, gs_jval_string(gs_jval_path(c, "cleanup.apiKey"), ""), sizeof W.cleanup.key);
+    SDL_strlcpy(W.cleanup.remote_model, gs_jval_string(gs_jval_path(c, "cleanup.model"), ""), sizeof W.cleanup.remote_model);
+    const char *style = gs_jval_string(gs_jval_path(c, "cleanup.style"), EH_DEFAULT_STYLE);
     W.style_mode = !SDL_strcmp(style, "custom");
     W.style = 0;
     for (size_t i = 0; i < SDL_arraysize(eh_styles); i++)
         if (!SDL_strcmp(eh_styles[i].id, W.style_mode ? EH_DEFAULT_STYLE : style)) W.style = (int)i;
-    number_text(W.temperature, sizeof W.temperature, eh_jv_path(c, "cleanup.custom.temperature"));
-    number_text(W.top_p, sizeof W.top_p, eh_jv_path(c, "cleanup.custom.topP"));
-    number_text(W.top_k, sizeof W.top_k, eh_jv_path(c, "cleanup.custom.topK"));
-    number_text(W.min_p, sizeof W.min_p, eh_jv_path(c, "cleanup.custom.minP"));
+    number_text(W.temperature, sizeof W.temperature, gs_jval_path(c, "cleanup.custom.temperature"));
+    number_text(W.top_p, sizeof W.top_p, gs_jval_path(c, "cleanup.custom.topP"));
+    number_text(W.top_k, sizeof W.top_k, gs_jval_path(c, "cleanup.custom.topK"));
+    number_text(W.min_p, sizeof W.min_p, gs_jval_path(c, "cleanup.custom.minP"));
     W.dictionary[0] = 0;
-    const eh_jv *words = eh_jv_path(c, "cleanup.dictionary");
-    for (int i = 0; i < eh_jv_count(words); i++) {
+    const gs_jval *words = gs_jval_path(c, "cleanup.dictionary");
+    for (int i = 0; i < gs_jval_count(words); i++) {
         if (i) SDL_strlcat(W.dictionary, "\n", sizeof W.dictionary);
-        SDL_strlcat(W.dictionary, eh_jv_string(eh_jv_at(words, i), ""), sizeof W.dictionary);
+        SDL_strlcat(W.dictionary, gs_jval_string(gs_jval_at(words, i), ""), sizeof W.dictionary);
     }
-    SDL_strlcpy(W.prompt, eh_jv_string(eh_jv_path(c, "cleanup.systemPrompt"), ""), sizeof W.prompt);
-    W.history_enabled = eh_jv_boolean(eh_jv_path(c, "history.enabled"), true);
-    number_text(W.max_seconds, sizeof W.max_seconds, eh_jv_path(c, "audio.maxRecordingSeconds"));
-    number_text(W.idle_unload, sizeof W.idle_unload, eh_jv_path(c, "engines.idleUnloadMinutes"));
+    SDL_strlcpy(W.prompt, gs_jval_string(gs_jval_path(c, "cleanup.systemPrompt"), ""), sizeof W.prompt);
+    W.history_enabled = gs_jval_boolean(gs_jval_path(c, "history.enabled"), true);
+    number_text(W.max_seconds, sizeof W.max_seconds, gs_jval_path(c, "audio.maxRecordingSeconds"));
+    number_text(W.idle_unload, sizeof W.idle_unload, gs_jval_path(c, "engines.idleUnloadMinutes"));
     eh_form_baseline_take(&W.baseline, c);
 }
 
@@ -226,19 +226,19 @@ static char *trimmed(const char *s) {
     return SDL_strndup(s, n);
 }
 
-static void set_trimmed(eh_jv *o, const char *path, const char *text) {
+static void set_trimmed(gs_jval *o, const char *path, const char *text) {
     char *t = trimmed(text);
-    eh_jv_set_path(o, path, eh_jv_str(t));
+    gs_jval_set_path(o, path, gs_jval_str(t));
     SDL_free(t);
 }
 
-static eh_jv *dictionary_of(const char *text) {
-    eh_jv *list = eh_jv_array();
+static gs_jval *dictionary_of(const char *text) {
+    gs_jval *list = gs_jval_array();
     for (const char *p = text; *p;) {
         const char *end = SDL_strchr(p, '\n');
         size_t n = end ? (size_t)(end - p) : SDL_strlen(p);
         char *line = SDL_strndup(p, n), *t = trimmed(line);
-        if (*t) eh_jv_push(list, eh_jv_str(t));
+        if (*t) gs_jval_push(list, gs_jval_str(t));
         SDL_free(t);
         SDL_free(line);
         p += n + (end ? 1 : 0);
@@ -247,39 +247,39 @@ static eh_jv *dictionary_of(const char *text) {
 }
 
 // The draft as settings: what was loaded, with every field of this window written over it.
-static eh_jv *collect(void) {
-    eh_jv *n = eh_jv_clone(W.base);
-    for (int i = 0; i < 4; i++) eh_jv_set(n, hotkey_paths[i], eh_jv_str(W.hotkeys[i]));
-    eh_jv_set_path(n, "output.mode", eh_jv_str(W.output_mode == 2 ? "clipboard" : W.output_mode == 1 ? "paste-copy" : "paste"));
-    eh_jv_set_path(n, "output.restoreClipboard", eh_jv_bool(true));
-    eh_jv_set_path(n, "audio.deviceId", eh_jv_str(W.mic == 0 ? "" : W.mic_missing && W.mic == W.mic_count - 1 ? W.saved_mic : W.mics[W.mic]));
-    double before = eh_jv_number(eh_jv_path(W.base, "audio.maxRecordingSeconds"), 600);
-    eh_jv_set_path(n, "audio.maxRecordingSeconds", eh_jv_num(floor(typed(W.max_seconds, 10, 3600, before) + 0.5)));
-    eh_jv_set_path(n, "engines.idleUnloadMinutes", eh_jv_num(floor(typed(W.idle_unload, 0, 240, 0) + 0.5)));
-    eh_jv_set_path(n, "history.enabled", eh_jv_bool(W.history_enabled));
-    eh_jv_set_path(n, "stt.engine", eh_jv_str(W.stt.engine ? "remote" : "builtin"));
+static gs_jval *collect(void) {
+    gs_jval *n = gs_jval_clone(W.base);
+    for (int i = 0; i < 4; i++) gs_jval_set(n, hotkey_paths[i], gs_jval_str(W.hotkeys[i]));
+    gs_jval_set_path(n, "output.mode", gs_jval_str(W.output_mode == 2 ? "clipboard" : W.output_mode == 1 ? "paste-copy" : "paste"));
+    gs_jval_set_path(n, "output.restoreClipboard", gs_jval_bool(true));
+    gs_jval_set_path(n, "audio.deviceId", gs_jval_str(W.mic == 0 ? "" : W.mic_missing && W.mic == W.mic_count - 1 ? W.saved_mic : W.mics[W.mic]));
+    double before = gs_jval_number(gs_jval_path(W.base, "audio.maxRecordingSeconds"), 600);
+    gs_jval_set_path(n, "audio.maxRecordingSeconds", gs_jval_num(floor(typed(W.max_seconds, 10, 3600, before) + 0.5)));
+    gs_jval_set_path(n, "engines.idleUnloadMinutes", gs_jval_num(floor(typed(W.idle_unload, 0, 240, 0) + 0.5)));
+    gs_jval_set_path(n, "history.enabled", gs_jval_bool(W.history_enabled));
+    gs_jval_set_path(n, "stt.engine", gs_jval_str(W.stt.engine ? "remote" : "builtin"));
     const eh_model *m = model_at(EH_MODEL_STT, W.stt.model);
-    if (m) eh_jv_set_path(n, "stt.builtin.model", eh_jv_str(m->id));
+    if (m) gs_jval_set_path(n, "stt.builtin.model", gs_jval_str(m->id));
     set_trimmed(n, "stt.baseUrl", W.stt.url);
     set_trimmed(n, "stt.apiKey", W.stt.key);
     set_trimmed(n, "stt.model", W.stt.remote_model);
     set_trimmed(n, "stt.language", W.language);
-    eh_jv_set_path(n, "stt.livePreview.enabled", eh_jv_bool(W.live_preview));
-    eh_jv_set_path(n, "cleanup.enabled", eh_jv_bool(W.cleanup_enabled));
-    eh_jv_set_path(n, "cleanup.engine", eh_jv_str(W.cleanup.engine ? "remote" : "builtin"));
+    gs_jval_set_path(n, "stt.livePreview.enabled", gs_jval_bool(W.live_preview));
+    gs_jval_set_path(n, "cleanup.enabled", gs_jval_bool(W.cleanup_enabled));
+    gs_jval_set_path(n, "cleanup.engine", gs_jval_str(W.cleanup.engine ? "remote" : "builtin"));
     m = model_at(EH_MODEL_CLEANUP, W.cleanup.model);
-    if (m) eh_jv_set_path(n, "cleanup.builtin.model", eh_jv_str(m->id));
+    if (m) gs_jval_set_path(n, "cleanup.builtin.model", gs_jval_str(m->id));
     set_trimmed(n, "cleanup.baseUrl", W.cleanup.url);
     set_trimmed(n, "cleanup.apiKey", W.cleanup.key);
     set_trimmed(n, "cleanup.model", W.cleanup.remote_model);
-    eh_jv_set_path(n, "cleanup.style", eh_jv_str(W.style_mode ? "custom" : eh_styles[W.style].id));
-    const eh_jv *cur = eh_jv_path(W.base, "cleanup.custom");
-    eh_jv_set_path(n, "cleanup.custom.temperature", eh_jv_num(typed(W.temperature, 0, 2, eh_jv_number(eh_jv_get(cur, "temperature"), 0.2))));
-    eh_jv_set_path(n, "cleanup.custom.topP", eh_jv_num(typed(W.top_p, 0, 1, eh_jv_number(eh_jv_get(cur, "topP"), 1))));
-    eh_jv_set_path(n, "cleanup.custom.topK", eh_jv_num(floor(typed(W.top_k, 0, 200, eh_jv_number(eh_jv_get(cur, "topK"), 0)) + 0.5)));
-    eh_jv_set_path(n, "cleanup.custom.minP", eh_jv_num(typed(W.min_p, 0, 1, eh_jv_number(eh_jv_get(cur, "minP"), 0))));
-    eh_jv_set_path(n, "cleanup.dictionary", dictionary_of(W.dictionary));
-    eh_jv_set_path(n, "cleanup.systemPrompt", eh_jv_str(W.prompt));
+    gs_jval_set_path(n, "cleanup.style", gs_jval_str(W.style_mode ? "custom" : eh_styles[W.style].id));
+    const gs_jval *cur = gs_jval_path(W.base, "cleanup.custom");
+    gs_jval_set_path(n, "cleanup.custom.temperature", gs_jval_num(typed(W.temperature, 0, 2, gs_jval_number(gs_jval_get(cur, "temperature"), 0.2))));
+    gs_jval_set_path(n, "cleanup.custom.topP", gs_jval_num(typed(W.top_p, 0, 1, gs_jval_number(gs_jval_get(cur, "topP"), 1))));
+    gs_jval_set_path(n, "cleanup.custom.topK", gs_jval_num(floor(typed(W.top_k, 0, 200, gs_jval_number(gs_jval_get(cur, "topK"), 0)) + 0.5)));
+    gs_jval_set_path(n, "cleanup.custom.minP", gs_jval_num(typed(W.min_p, 0, 1, gs_jval_number(gs_jval_get(cur, "minP"), 0))));
+    gs_jval_set_path(n, "cleanup.dictionary", dictionary_of(W.dictionary));
+    gs_jval_set_path(n, "cleanup.systemPrompt", gs_jval_str(W.prompt));
     return n;
 }
 
@@ -288,14 +288,14 @@ static eh_jv *collect(void) {
 // Save. Hotkeys that could not be registered keep their saved value, and the draft keeps what was
 // typed so it can be corrected.
 static void save_task(void *arg) {
-    eh_jv *next = arg;
+    gs_jval *next = arg;
     eh_hotkey_results results;
-    eh_jv *typed_keys = eh_jv_object();
-    for (int i = 0; i < 4; i++) eh_jv_set(typed_keys, hotkey_paths[i], eh_jv_clone(eh_jv_get(next, hotkey_paths[i])));
+    gs_jval *typed_keys = gs_jval_object();
+    for (int i = 0; i < 4; i++) gs_jval_set(typed_keys, hotkey_paths[i], gs_jval_clone(gs_jval_get(next, hotkey_paths[i])));
     char error[256];
     if (!eh_commit_settings(next, &W.baseline, &results, error, sizeof error)) {
         say(&W.save, ST_ERR, "Could not save: %s", error);
-        eh_jv_free(typed_keys);
+        gs_jval_free(typed_keys);
         W.saving = false;
         return;
     }
@@ -309,17 +309,17 @@ static void save_task(void *arg) {
     if (W.max_seconds[0] && (SDL_strtod(W.max_seconds, &end) != seconds || *end)) SDL_snprintf(adjusted, sizeof adjusted, "Max dictation length set to %.0f s (allowed 10–3600)", seconds);
     if (W.idle_unload[0] && (SDL_strtod(W.idle_unload, &end) != idle || *end))
         SDL_snprintf(adjusted + SDL_strlen(adjusted), sizeof adjusted - SDL_strlen(adjusted), "%sIdle unload set to %.0f min (allowed 0–240)", adjusted[0] ? "; " : "", idle);
-    eh_jv_free(W.base);
-    W.base = eh_jv_clone(eh_settings());
+    gs_jval_free(W.base);
+    W.base = gs_jval_clone(eh_settings());
     populate();
     // The hotkeys that were refused stay in their fields as typed, each with its reason under it.
     static const char *const names[4] = { "hotkey", "pause hotkey", "discard hotkey", "correction hotkey" };
     for (int i = 0; i < 4; i++) {
         bool bad = !results.r[i].ok;
-        if (bad) SDL_strlcpy(W.hotkeys[i], eh_jv_string(eh_jv_get(typed_keys, hotkey_paths[i]), ""), sizeof W.hotkeys[i]);
+        if (bad) SDL_strlcpy(W.hotkeys[i], gs_jval_string(gs_jval_get(typed_keys, hotkey_paths[i]), ""), sizeof W.hotkeys[i]);
         say(&W.hotkey_status[i], bad ? ST_ERR : ST_NONE, "%s", bad ? results.r[i].error : "");
     }
-    eh_jv_free(typed_keys);
+    gs_jval_free(typed_keys);
     W.saving = false;
     if (failed) {
         if (failed > 1) say(&W.save, ST_ERR, "Saved, but the hotkeys could not be changed");
@@ -333,7 +333,7 @@ static void save_task(void *arg) {
     }
 }
 
-typedef struct { engine_draft *d; eh_jv *cfg; bool cleanup; } probe;
+typedef struct { engine_draft *d; gs_jval *cfg; bool cleanup; } probe;
 
 static void test_task(void *arg) {
     probe *p = arg;
@@ -357,14 +357,14 @@ static void test_task(void *arg) {
         SDL_free(wav);
     }
     p->d->testing = false;
-    eh_jv_free(p->cfg);
+    gs_jval_free(p->cfg);
     SDL_free(p);
 }
 
 static void fetch_task(void *arg) {
     probe *p = arg;
     char error[320] = "";
-    eh_jv *models = eh_remote_models(p->cfg, NULL, error, sizeof error);
+    gs_jval *models = eh_remote_models(p->cfg, NULL, error, sizeof error);
     engine_draft *d = p->d;
     for (int i = 0; i < d->remote_count; i++) SDL_free(d->remote_models[i]);
     SDL_free(d->remote_models);
@@ -373,31 +373,31 @@ static void fetch_task(void *arg) {
     if (!models) {
         say(&d->fetch, ST_ERR, "%s", error);
     } else {
-        int n = eh_jv_count(models);
+        int n = gs_jval_count(models);
         d->remote_models = SDL_calloc((size_t)n + 1, sizeof *d->remote_models);
         d->remote_pick = -1;
         for (int i = 0; i < n; i++) {
-            d->remote_models[i] = SDL_strdup(eh_jv_string(eh_jv_at(models, i), ""));
+            d->remote_models[i] = SDL_strdup(gs_jval_string(gs_jval_at(models, i), ""));
             if (!SDL_strcmp(d->remote_models[i], d->remote_model)) d->remote_pick = i;
         }
         d->remote_count = n;
         if (n) say(&d->fetch, ST_OK, "%d model%s — choose one from the list", n, n == 1 ? "" : "s");
         else say(&d->fetch, ST_PLAIN, "No models reported by this service");
-        eh_jv_free(models);
+        gs_jval_free(models);
     }
     d->fetching = false;
-    eh_jv_free(p->cfg);
+    gs_jval_free(p->cfg);
     SDL_free(p);
 }
 
 static void probe_start(engine_draft *d, bool cleanup, eh_task_fn *fn) {
-    eh_jv *all = collect();
+    gs_jval *all = collect();
     probe *p = SDL_calloc(1, sizeof *p);
     p->d = d;
     p->cleanup = cleanup;
-    p->cfg = eh_jv_clone(eh_jv_get(all, cleanup ? "cleanup" : "stt"));
-    if (cleanup) eh_jv_set(p->cfg, "enabled", eh_jv_bool(true));
-    eh_jv_free(all);
+    p->cfg = gs_jval_clone(gs_jval_get(all, cleanup ? "cleanup" : "stt"));
+    if (cleanup) gs_jval_set(p->cfg, "enabled", gs_jval_bool(true));
+    gs_jval_free(all);
     eh_spawn(fn, p);
 }
 
@@ -407,12 +407,12 @@ static void copy_task(void *arg) {
     copy *c = arg;
     char error[256] = "";
     eh_delivery result;
-    eh_jv *output = eh_jv_object();
-    eh_jv_set(output, "mode", eh_jv_str("clipboard"));
+    gs_jval *output = gs_jval_object();
+    gs_jval_set(output, "mode", gs_jval_str("clipboard"));
     if (eh_pipeline_state() == EH_PROCESSING) say(&W.history_status, ST_ERR, "Could not copy: Wait for the current dictation to finish processing before copying a transcript.");
     else if (!eh_deliver(c->text, output, NULL, &result, error, sizeof error)) say(&W.history_status, ST_ERR, "Could not copy: %s", error);
     else W.copied_row = c->row, W.copied_kind = c->kind, W.copied_at = SDL_GetTicks();
-    eh_jv_free(output);
+    gs_jval_free(output);
     SDL_free(c->text);
     SDL_free(c);
 }
@@ -439,22 +439,22 @@ static void hf_find_task(void *arg) {
     hf_job *j = arg;
     engine_draft *d = j->d;
     char error[1400] = "";
-    eh_jv *listing;
+    gs_jval *listing;
     EH_AWAIT(listing = eh_hf_discover(j->kind, j->address, error, sizeof error));
     hf_clear(d);
     if (!listing) {
         say(&d->hf, ST_ERR, "%s", error);
     } else {
-        const eh_jv *variants = eh_jv_get(listing, "variants");
-        const char *recommended = eh_jv_string(eh_jv_get(listing, "recommended"), "");
-        int n = eh_jv_count(variants);
+        const gs_jval *variants = gs_jval_get(listing, "variants");
+        const char *recommended = gs_jval_string(gs_jval_get(listing, "recommended"), "");
+        int n = gs_jval_count(variants);
         d->hf_labels = SDL_calloc((size_t)n + 1, sizeof *d->hf_labels);
         d->hf_shown = SDL_calloc((size_t)n + 1, sizeof *d->hf_shown);
         d->hf_pick = 0;
         for (int i = 0; i < n; i++) {
-            const eh_jv *v = eh_jv_at(variants, i);
-            const char *label = eh_jv_string(eh_jv_get(v, "label"), "");
-            double bytes = eh_jv_number(eh_jv_get(v, "totalBytes"), 0);
+            const gs_jval *v = gs_jval_at(variants, i);
+            const char *label = gs_jval_string(gs_jval_get(v, "label"), "");
+            double bytes = gs_jval_number(gs_jval_get(v, "totalBytes"), 0);
             char size[32] = "", shown[240];
             if (bytes >= 1e9) SDL_snprintf(size, sizeof size, " · %.1f GB", bytes / 1e9);
             else if (bytes > 0) SDL_snprintf(size, sizeof size, " · %.0f MB", bytes / 1e6);
@@ -465,8 +465,8 @@ static void hf_find_task(void *arg) {
             if (best) d->hf_pick = i;
         }
         d->hf_count = n;
-        say(&d->hf, ST_OK, "%s — %d version%s", eh_jv_string(eh_jv_get(listing, "repo"), ""), n, n == 1 ? "" : "s");
-        eh_jv_free(listing);
+        say(&d->hf, ST_OK, "%s — %d version%s", gs_jval_string(gs_jval_get(listing, "repo"), ""), n, n == 1 ? "" : "s");
+        gs_jval_free(listing);
     }
     d->hf_busy = false;
     SDL_free(j->address);
@@ -633,9 +633,9 @@ static void general(void) {
             W.hotkey_status[i].tone = ST_NONE;
         }
         if (eh_w_button(W.ui, (gs_rect){ r.x + r.w - bw, r.y + 2, bw, 34 }, clear_ids[i], i ? "Clear" : "Reset", EH_BTN_PLAIN)) {
-            eh_jv *d = eh_jv_parse(eh_defaults_json, sizeof eh_defaults_json - 1);
-            SDL_strlcpy(W.hotkeys[i], i ? "" : eh_jv_string(eh_jv_get(d, "hotkey"), ""), sizeof W.hotkeys[i]);
-            eh_jv_free(d);
+            gs_jval *d = gs_jval_parse(eh_defaults_json, sizeof eh_defaults_json - 1);
+            SDL_strlcpy(W.hotkeys[i], i ? "" : gs_jval_string(gs_jval_get(d, "hotkey"), ""), sizeof W.hotkeys[i]);
+            gs_jval_free(d);
         }
         hint(hints[i]);
         show(&W.hotkey_status[i]);
@@ -1001,9 +1001,9 @@ static void cleanup(void) {
     pg.y += 10;
     x = pg.x;
     if (button_at(&x, pg.y, "cleanup-prompt-reset", "Reset to default", EH_BTN_PLAIN)) {
-        eh_jv *d = eh_jv_parse(eh_defaults_json, sizeof eh_defaults_json - 1);
-        SDL_strlcpy(W.prompt, eh_jv_string(eh_jv_path(d, "cleanup.systemPrompt"), ""), sizeof W.prompt);
-        eh_jv_free(d);
+        gs_jval *d = gs_jval_parse(eh_defaults_json, sizeof eh_defaults_json - 1);
+        SDL_strlcpy(W.prompt, gs_jval_string(gs_jval_path(d, "cleanup.systemPrompt"), ""), sizeof W.prompt);
+        gs_jval_free(d);
     }
     pg.y += 34;
     card_end();
@@ -1012,16 +1012,16 @@ static void cleanup(void) {
 
 #define HISTORY_PAGE 5
 
-static void when_text(char *out, size_t size, const eh_jv *item) {
+static void when_text(char *out, size_t size, const gs_jval *item) {
     // "2026-10-11T22:51:07.123Z" shown as the day and the minute, in local time.
-    const char *at = eh_jv_string(eh_jv_get(item, "at"), "");
+    const char *at = gs_jval_string(gs_jval_get(item, "at"), "");
     SDL_DateTime dt = { 0 };
     SDL_Time t;
     if (SDL_sscanf(at, "%d-%d-%dT%d:%d:%d", &dt.year, &dt.month, &dt.day, &dt.hour, &dt.minute, &dt.second) == 6 && SDL_DateTimeToTime(&dt, &t) && SDL_TimeToDateTime(t, &dt, true))
         SDL_snprintf(out, size, "%04d-%02d-%02d %02d:%02d", dt.year, dt.month, dt.day, dt.hour, dt.minute);
     else SDL_strlcpy(out, at, size);
-    if (eh_jv_boolean(eh_jv_get(item, "cleaned"), false)) SDL_strlcat(out, " · cleaned", size);
-    if (eh_jv_boolean(eh_jv_get(item, "incomplete"), false)) SDL_strlcat(out, " · incomplete", size);
+    if (gs_jval_boolean(gs_jval_get(item, "cleaned"), false)) SDL_strlcat(out, " · cleaned", size);
+    if (gs_jval_boolean(gs_jval_get(item, "incomplete"), false)) SDL_strlcat(out, " · incomplete", size);
 }
 
 static void copy_start(const char *value, int row, int kind) {
@@ -1047,16 +1047,16 @@ static void history(void) {
         W.ask = ASK_CLEAR_HISTORY;
     }
     pg.y += 8;
-    const eh_jv *items = eh_history_list();
-    int count = eh_jv_count(items), pages = SDL_max(1, (count + HISTORY_PAGE - 1) / HISTORY_PAGE);
+    const gs_jval *items = eh_history_list();
+    int count = gs_jval_count(items), pages = SDL_max(1, (count + HISTORY_PAGE - 1) / HISTORY_PAGE);
     W.history_page = SDL_min(W.history_page, pages - 1);
     if (!count) text("No transcriptions yet.", 13, gs_rgba(EH_TEXT_DIM, 1));
     int start = W.history_page * HISTORY_PAGE;
     bool copied = W.copied_at && SDL_GetTicks() - W.copied_at < 1200;
     if (copied) eh_ui_again(W.ui, 200);
     for (int i = start; i < count && i < start + HISTORY_PAGE; i++) {
-        const eh_jv *item = eh_jv_at(items, i);
-        const char *body = eh_jv_string(eh_jv_get(item, "text"), ""), *raw = eh_jv_string(eh_jv_get(item, "raw"), NULL);
+        const gs_jval *item = gs_jval_at(items, i);
+        const char *body = gs_jval_string(gs_jval_get(item, "text"), ""), *raw = gs_jval_string(gs_jval_get(item, "raw"), NULL);
         int row = i - start;
         char id[40], when[96];
         if (row) gs_ui_fill(eh_ui_gs(W.ui), take(1), EH_SEAM);
@@ -1077,7 +1077,7 @@ static void history(void) {
         eh_w_line(W.ui, meta, when, 12, gs_rgba(EH_TEXT_DIM, 1), -1);
         float x = meta.x + meta.w;
 #define ROW_BUTTON(ID, LABEL) (SDL_snprintf(id, sizeof id, "history-%s-%d", ID, row), x -= eh_w_button_width(W.ui, LABEL) + 8, eh_w_button(W.ui, (gs_rect){ x + 8, meta.y, eh_w_button_width(W.ui, LABEL), 30 }, id, LABEL, EH_BTN_PLAIN))
-        if (eh_jv_boolean(eh_jv_get(item, "cleaned"), false) && raw && SDL_strcmp(raw, body))
+        if (gs_jval_boolean(gs_jval_get(item, "cleaned"), false) && raw && SDL_strcmp(raw, body))
             if (ROW_BUTTON("original", copied && W.copied_row == row && W.copied_kind == 1 ? "Copied" : "Copy original")) copy_start(raw, row, 1);
         if (ROW_BUTTON("correct", "Correct…")) {
             SDL_free(W.correct);
@@ -1172,8 +1172,8 @@ void eh_settings_window_open(const char *section) {
         W.ui = eh_ui_new("Earheart", 772, 780, 640, 480);
         if (!W.ui) return;
         eh_lock();
-        eh_jv_free(W.base);
-        W.base = eh_jv_clone(eh_settings());
+        gs_jval_free(W.base);
+        W.base = gs_jval_clone(eh_settings());
         populate();
         W.save.tone = ST_NONE;
         W.saving = W.close_when_saved = W.wizard_banner = false;
@@ -1355,18 +1355,18 @@ const char *eh_settings_window_text(const char *what) {
 }
 
 bool eh_settings_window_untouched(void) {
-    eh_jv *now = collect();
-    bool same = eh_jv_equal(now, W.base);
+    gs_jval *now = collect();
+    bool same = gs_jval_equal(now, W.base);
     if (!same && SDL_getenv("EARHEART_SMOKE_VERBOSE")) {
-        for (int i = 0; i < W.base->count; i++) {
-            const eh_jv *a = W.base->items[i], *b = eh_jv_get(now, W.base->keys[i]);
-            if (eh_jv_equal(a, b)) continue;
-            char *was = eh_jv_write(a, false), *is = b ? eh_jv_write(b, false) : SDL_strdup("(missing)");
-            SDL_Log("%s: %s -> %s", W.base->keys[i], was, is);
+        for (int i = 0; i < gs_jval_count(W.base); i++) {
+            const gs_jval *a = gs_jval_at(W.base, i), *b = gs_jval_get(now, gs_jval_key(W.base, i));
+            if (gs_jval_equal(a, b)) continue;
+            char *was = gs_jval_write(a, false), *is = b ? gs_jval_write(b, false) : SDL_strdup("(missing)");
+            SDL_Log("%s: %s -> %s", gs_jval_key(W.base, i), was, is);
             SDL_free(was);
             SDL_free(is);
         }
     }
-    eh_jv_free(now);
+    gs_jval_free(now);
     return same;
 }

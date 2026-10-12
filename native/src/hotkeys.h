@@ -7,7 +7,7 @@
 #pragma once
 #include <stdbool.h>
 #include <stddef.h>
-#include "jv.h"
+#include "gs_json.h"
 
 enum { EH_HK_RECORD, EH_HK_PAUSE, EH_HK_DISCARD, EH_HK_CORRECT, EH_HK_COUNT };
 
@@ -30,7 +30,7 @@ typedef struct { eh_hotkey_result r[EH_HK_COUNT]; } eh_hotkey_results;  // in th
 void eh_hotkeys_backend(const eh_hotkey_backend *backend);
 // Makes the held hotkeys those of the settings given ("hotkey", "pauseHotkey", "discardHotkey",
 // "correctHotkey"), and remembers the outcome for eh_hotkeys_status.
-void eh_hotkeys_apply(const eh_jv *settings, eh_hotkey_results *out);
+void eh_hotkeys_apply(const gs_jval *settings, eh_hotkey_results *out);
 eh_hotkey_result eh_hotkeys_status(int name);
 void eh_hotkeys_arm_discard(bool live);  // a dictation began or ended
 // Lets every hotkey go, or takes them back. Returns how many could not be taken back.

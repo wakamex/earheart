@@ -78,22 +78,22 @@ static void act(void *user) {
     case ACT_DISCARD: eh_pipeline_discard(); break;
     case ACT_CANCEL: eh_pipeline_cancel(); break;
     case ACT_COPY_LAST: {
-        const eh_jv *last = eh_jv_at(eh_history_list(), 0);
+        const gs_jval *last = gs_jval_at(eh_history_list(), 0);
         if (!last || eh_pipeline_state() == EH_PROCESSING) break;
-        eh_jv *output = eh_jv_object();
-        eh_jv_set(output, "mode", eh_jv_str("clipboard"));
-        char *text = SDL_strdup(eh_jv_string(eh_jv_get(last, "text"), ""));
+        gs_jval *output = gs_jval_object();
+        gs_jval_set(output, "mode", gs_jval_str("clipboard"));
+        char *text = SDL_strdup(gs_jval_string(gs_jval_get(last, "text"), ""));
         eh_delivery result;
         if (!eh_deliver(text, output, NULL, &result, error, sizeof error)) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "could not copy transcript: %s", error);
         SDL_free(text);
-        eh_jv_free(output);
+        gs_jval_free(output);
         break;
     }
     case ACT_MODE_PASTE: case ACT_MODE_PASTE_COPY: case ACT_MODE_CLIPBOARD: {
         const char *mode = (action)(intptr_t)user == ACT_MODE_PASTE ? "paste" : (action)(intptr_t)user == ACT_MODE_PASTE_COPY ? "paste-copy" : "clipboard";
-        eh_jv *next = eh_jv_clone(eh_settings());
-        eh_jv_set_path(next, "output.mode", eh_jv_str(mode));
-        eh_jv_set_path(next, "output.restoreClipboard", eh_jv_bool(true));
+        gs_jval *next = gs_jval_clone(eh_settings());
+        gs_jval_set_path(next, "output.mode", gs_jval_str(mode));
+        gs_jval_set_path(next, "output.restoreClipboard", gs_jval_bool(true));
         if (!eh_settings_save(next, error, sizeof error)) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "could not save the output mode: %s", error);
         break;
     }
@@ -224,7 +224,7 @@ static void refresh_tray(void) {
     const char *mode = eh_setting_str("output.mode");
     // Paste without restoring the clipboard is what "paste and keep" means.
     bool keep = !SDL_strcmp(mode, "paste-copy") || (!SDL_strcmp(mode, "paste") && !eh_setting_bool("output.restoreClipboard"));
-    bool paste = !SDL_strcmp(mode, "paste") && !keep, has_last = eh_jv_count(eh_history_list()) > 0;
+    bool paste = !SDL_strcmp(mode, "paste") && !keep, has_last = gs_jval_count(eh_history_list()) > 0;
     eh_unlock();
 
     // The list is SDL's own and shifts under a removal, so it is asked for again each time.
@@ -265,12 +265,12 @@ static SDL_Surface *icon_surface(const unsigned char *png, int len) {
 
 // Called with the lock held, from whichever task changed something. The tray is the main
 // thread's, so it is only told to look again.
-static void observer(const char *kind, const char *a, const char *b, double number, const eh_jv *detail) {
+static void observer(const char *kind, const char *a, const char *b, double number, const gs_jval *detail) {
     if (!SDL_strcmp(kind, "notify")) {
         // Until there are desktop notifications, the log holds them.
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s: %s", a, b);
     } else if (!SDL_strcmp(kind, "status")) {
-        SDL_Log("status: %s%s%s", a, eh_jv_get(detail, "message") ? ": " : "", eh_jv_string(eh_jv_get(detail, "message"), ""));
+        SDL_Log("status: %s%s%s", a, gs_jval_get(detail, "message") ? ": " : "", gs_jval_string(gs_jval_get(detail, "message"), ""));
     } else if (!SDL_strcmp(kind, "state")) {
         spawn_action(SDL_strcmp(a, "idle") ? ACT_ARM : ACT_DISARM);
     }
@@ -282,7 +282,7 @@ static void observer(const char *kind, const char *a, const char *b, double numb
     }
 }
 
-static void settings_changed(void *user, const eh_jv *previous, const eh_jv *current) {
+static void settings_changed(void *user, const gs_jval *previous, const gs_jval *current) {
     SDL_Event e = { .user = { .type = R.refresh_event, .code = 1 } };
     SDL_PushEvent(&e);
 }
@@ -290,7 +290,7 @@ static void settings_changed(void *user, const eh_jv *previous, const eh_jv *cur
 // On the main thread: the editor on the newest saved transcript, when no dictation is under way.
 static void correct_last(void) {
     eh_lock();
-    char *text = SDL_strdup(eh_jv_string(eh_jv_get(eh_jv_at(eh_history_list(), 0), "text"), ""));
+    char *text = SDL_strdup(gs_jval_string(gs_jval_get(gs_jval_at(eh_history_list(), 0), "text"), ""));
     eh_unlock();
     char error[200];
     if (!eh_correction_window_open(text, error, sizeof error)) SDL_Log("correction editor not opened: %s", error);

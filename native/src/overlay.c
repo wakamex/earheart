@@ -371,16 +371,16 @@ static void place(void) {
     SDL_GetDisplayUsableBounds(SDL_GetPrimaryDisplay(), &area);
     O.base_x = area.x + (area.w - EH_OVERLAY_WIDTH) / 2;
     O.base_y = area.y + area.h - EH_OVERLAY_HEIGHT - 24;
-    const eh_jv *x = eh_jv_path(eh_settings(), "overlay.x"), *y = eh_jv_path(eh_settings(), "overlay.y");
-    if (x && y && x->type == EH_JV_NUMBER && y->type == EH_JV_NUMBER) {
+    const gs_jval *x = gs_jval_path(eh_settings(), "overlay.x"), *y = gs_jval_path(eh_settings(), "overlay.y");
+    if (x && y && gs_jval_kind(x) == GS_JSON_NUMBER && gs_jval_kind(y) == GS_JSON_NUMBER) {
         int count = 0;
         SDL_DisplayID *displays = SDL_GetDisplays(&count);
         for (int i = 0; displays && i < count; i++) {
             SDL_Rect d;
             if (!SDL_GetDisplayUsableBounds(displays[i], &d)) continue;
-            if (x->number >= d.x && y->number >= d.y && x->number + EH_OVERLAY_WIDTH <= d.x + d.w && y->number + EH_OVERLAY_HEIGHT <= d.y + d.h) {
-                O.base_x = (int)x->number;
-                O.base_y = (int)y->number;
+            if (gs_jval_number(x, 0) >= d.x && gs_jval_number(y, 0) >= d.y && gs_jval_number(x, 0) + EH_OVERLAY_WIDTH <= d.x + d.w && gs_jval_number(y, 0) + EH_OVERLAY_HEIGHT <= d.y + d.h) {
+                O.base_x = (int)gs_jval_number(x, 0);
+                O.base_y = (int)gs_jval_number(y, 0);
             }
         }
         SDL_free(displays);
@@ -418,9 +418,9 @@ static void press(void *user) {
 
 static void save_position(void *user) {
     char error[256];
-    eh_jv *next = eh_jv_clone(eh_settings());
-    eh_jv_set_path(next, "overlay.x", eh_jv_num(O.base_x));
-    eh_jv_set_path(next, "overlay.y", eh_jv_num(O.base_y));
+    gs_jval *next = gs_jval_clone(eh_settings());
+    gs_jval_set_path(next, "overlay.x", gs_jval_num(O.base_x));
+    gs_jval_set_path(next, "overlay.y", gs_jval_num(O.base_y));
     if (!eh_settings_save(next, error, sizeof error)) SDL_Log("could not save the overlay's position: %s", error);
 }
 
@@ -492,9 +492,9 @@ int eh_overlay_step(const eh_overlay_input *in, Uint64 now, eh_overlay_model *m)
     *m = (eh_overlay_model){ 0 };
     SDL_strlcpy(m->status, v->status[0] ? v->status : "starting", sizeof m->status);
     bool recording = !SDL_strcmp(m->status, "recording"), paused = !SDL_strcmp(m->status, "paused");
-    const eh_jv *d = v->detail;
-    bool incomplete = eh_jv_boolean(eh_jv_get(d, "incomplete"), false);
-    const char *note = eh_jv_string(eh_jv_get(d, "note"), ""), *method = eh_jv_string(eh_jv_get(d, "method"), "");
+    const gs_jval *d = v->detail;
+    bool incomplete = gs_jval_boolean(gs_jval_get(d, "incomplete"), false);
+    const char *note = gs_jval_string(gs_jval_get(d, "note"), ""), *method = gs_jval_string(gs_jval_get(d, "method"), "");
     // The state in a word, and the line beside it.
     if (!SDL_strcmp(m->status, "starting")) SDL_strlcpy(m->title, "Starting mic…", sizeof m->title);
     else if (recording) { SDL_strlcpy(m->detail, v->notice, sizeof m->detail); }
@@ -505,9 +505,9 @@ int eh_overlay_step(const eh_overlay_input *in, Uint64 now, eh_overlay_model *m)
     else if (!SDL_strcmp(m->status, "done")) {
         const char *delivered = *note ? "Copied — auto-paste failed" : !SDL_strcmp(method, "clipboard") ? "Copied to clipboard" : !SDL_strcmp(method, "paste-copy") ? "Pasted & copied" : "Pasted";
         SDL_snprintf(m->title, sizeof m->title, "%s%s", delivered, incomplete ? " — incomplete" : "");
-        SDL_strlcpy(m->detail, *note ? note : eh_jv_string(eh_jv_get(d, "preview"), ""), sizeof m->detail);
+        SDL_strlcpy(m->detail, *note ? note : gs_jval_string(gs_jval_get(d, "preview"), ""), sizeof m->detail);
     } else if (!SDL_strcmp(m->status, "empty")) { SDL_strlcpy(m->title, "Nothing heard", sizeof m->title); SDL_strlcpy(m->detail, "Try again closer to the mic", sizeof m->detail); }
-    else if (!SDL_strcmp(m->status, "error")) { SDL_strlcpy(m->title, "Failed", sizeof m->title); SDL_strlcpy(m->detail, eh_jv_string(eh_jv_get(d, "message"), ""), sizeof m->detail); }
+    else if (!SDL_strcmp(m->status, "error")) { SDL_strlcpy(m->title, "Failed", sizeof m->title); SDL_strlcpy(m->detail, gs_jval_string(gs_jval_get(d, "message"), ""), sizeof m->detail); }
 
     // A new dictation starts with an empty waveform; a new phase with an empty bar, unless the
     // bar it follows is still showing its end. Progress belongs to the phase it was reported for.

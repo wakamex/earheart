@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include "jv.h"
+#include "gs_json.h"
 
 typedef struct {
     void (*captured)(unsigned sid, uint8_t *wav, size_t len);  // the whole recording, after a stop
@@ -23,7 +23,7 @@ void eh_recorder_fake_microphone(const char *wav_path, double speed);
 
 // `chunks` turns the partial sends on, `display` also sends the chunk in progress on every tick,
 // and `live_preview` is the settings' stt.livePreview (intervalMs, chunkSeconds).
-void eh_recorder_start(unsigned sid, const char *device_id, double max_seconds, bool chunks, bool display, const eh_jv *live_preview);
+void eh_recorder_start(unsigned sid, const char *device_id, double max_seconds, bool chunks, bool display, const gs_jval *live_preview);
 void eh_recorder_stop(void);
 void eh_recorder_cancel(void);
 void eh_recorder_pause_toggle(void);

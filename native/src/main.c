@@ -22,7 +22,7 @@
 #include <stdio.h>
 #include "catalog.h"
 #include "chunked.h"
-#include "jv.h"
+#include "gs_json.h"
 #include "wav.h"
 #include "cleanup.h"
 #include "cores.h"
@@ -56,9 +56,9 @@ static int cmd_models(int argc, char **argv) {
     SDL_snprintf(settings_path, sizeof settings_path, "%s" EH_SEP "settings.json", eh_data_dir());
     size_t settings_len = 0;
     char *settings_text = SDL_LoadFile(settings_path, &settings_len);
-    eh_jv *saved = settings_text ? eh_jv_parse(settings_text, settings_len) : NULL;
-    eh_models_set_custom(eh_jv_get(saved, "customModels"));
-    eh_jv_free(saved);
+    gs_jval *saved = settings_text ? gs_jval_parse(settings_text, settings_len) : NULL;
+    eh_models_set_custom(gs_jval_get(saved, "customModels"));
+    gs_jval_free(saved);
     SDL_free(settings_text);
     const char *verb = i < argc ? argv[i++] : "list";
     if (!SDL_strcmp(verb, "list")) {
@@ -79,31 +79,31 @@ static int cmd_models(int argc, char **argv) {
         if (i + 2 > argc) return usage();
         eh_model_kind kind = !SDL_strcmp(argv[i], "stt") ? EH_MODEL_STT : EH_MODEL_CLEANUP;
         char error[1400];
-        eh_jv *listing = eh_hf_discover(kind, argv[i + 1], error, sizeof error);
+        gs_jval *listing = eh_hf_discover(kind, argv[i + 1], error, sizeof error);
         if (!listing) { fprintf(stderr, "earheart: %s\n", error); return 1; }
-        const eh_jv *variants = eh_jv_get(listing, "variants");
+        const gs_jval *variants = gs_jval_get(listing, "variants");
         // With a version named: that version's model definition, as settings keep it.
-        for (int k = 0; i + 2 < argc && k < eh_jv_count(variants); k++) {
-            const eh_jv *v = eh_jv_at(variants, k);
-            if (SDL_strcmp(eh_jv_string(eh_jv_get(v, "label"), ""), argv[i + 2])) continue;
-            eh_jv *model = eh_hf_model(kind, eh_jv_string(eh_jv_get(listing, "repo"), ""), v);
-            char *json = eh_jv_write(model, false);
+        for (int k = 0; i + 2 < argc && k < gs_jval_count(variants); k++) {
+            const gs_jval *v = gs_jval_at(variants, k);
+            if (SDL_strcmp(gs_jval_string(gs_jval_get(v, "label"), ""), argv[i + 2])) continue;
+            gs_jval *model = eh_hf_model(kind, gs_jval_string(gs_jval_get(listing, "repo"), ""), v);
+            char *json = gs_jval_write(model, false);
             printf("%s\n", json);
             SDL_free(json);
-            eh_jv_free(model);
-            eh_jv_free(listing);
+            gs_jval_free(model);
+            gs_jval_free(listing);
             return 0;
         }
         if (i + 2 < argc) { fprintf(stderr, "earheart: no version %s there\n", argv[i + 2]); return 1; }
-        printf("%s at %s\n", eh_jv_string(eh_jv_get(listing, "repo"), ""), eh_jv_string(eh_jv_get(listing, "commit"), ""));
-        for (int k = 0; k < eh_jv_count(variants); k++) {
-            const eh_jv *v = eh_jv_at(variants, k);
-            eh_jv *model = eh_hf_model(kind, eh_jv_string(eh_jv_get(listing, "repo"), ""), v);
-            printf("  %-12s %8.0f MB  %d file%s  %s\n", eh_jv_string(eh_jv_get(v, "label"), ""), eh_jv_number(eh_jv_get(v, "totalBytes"), 0) / 1e6, eh_jv_count(eh_jv_get(v, "files")),
-                   eh_jv_count(eh_jv_get(v, "files")) == 1 ? "" : "s", eh_jv_string(eh_jv_get(model, "id"), ""));
-            eh_jv_free(model);
+        printf("%s at %s\n", gs_jval_string(gs_jval_get(listing, "repo"), ""), gs_jval_string(gs_jval_get(listing, "commit"), ""));
+        for (int k = 0; k < gs_jval_count(variants); k++) {
+            const gs_jval *v = gs_jval_at(variants, k);
+            gs_jval *model = eh_hf_model(kind, gs_jval_string(gs_jval_get(listing, "repo"), ""), v);
+            printf("  %-12s %8.0f MB  %d file%s  %s\n", gs_jval_string(gs_jval_get(v, "label"), ""), gs_jval_number(gs_jval_get(v, "totalBytes"), 0) / 1e6, gs_jval_count(gs_jval_get(v, "files")),
+                   gs_jval_count(gs_jval_get(v, "files")) == 1 ? "" : "s", gs_jval_string(gs_jval_get(model, "id"), ""));
+            gs_jval_free(model);
         }
-        eh_jv_free(listing);
+        gs_jval_free(listing);
         return 0;
     }
     if (!download && SDL_strcmp(verb, "remove")) return usage();
@@ -197,27 +197,27 @@ static int transcribe_chunked(eh_engine *e, const char *file, const uint8_t *wav
     bool ok = eh_transcribe_chunked(wav, len, &o, &r);
     if (!ok) fprintf(stderr, "earheart: %s: %s\n", file, r.error);
     if (json) {
-        eh_jv *out = eh_jv_object(), *pieces = eh_jv_array();
-        eh_jv_set(out, "file", eh_jv_str(file));
-        eh_jv_set(out, "text", eh_jv_str(ok ? r.text : ""));
-        eh_jv_set(out, "partial", eh_jv_bool(r.partial));
-        if (!ok) eh_jv_set(out, "error", eh_jv_str(r.error));
-        eh_jv_set(out, "decodeMs", eh_jv_num(run.decode_ms));
-        eh_jv_set(out, "workerInputs", eh_jv_num(run.inputs));
-        eh_jv_set(out, "maxPieceSec", eh_jv_num(run.max_seconds));
+        gs_jval *out = gs_jval_object(), *pieces = gs_jval_array();
+        gs_jval_set(out, "file", gs_jval_str(file));
+        gs_jval_set(out, "text", gs_jval_str(ok ? r.text : ""));
+        gs_jval_set(out, "partial", gs_jval_bool(r.partial));
+        if (!ok) gs_jval_set(out, "error", gs_jval_str(r.error));
+        gs_jval_set(out, "decodeMs", gs_jval_num(run.decode_ms));
+        gs_jval_set(out, "workerInputs", gs_jval_num(run.inputs));
+        gs_jval_set(out, "maxPieceSec", gs_jval_num(run.max_seconds));
         for (int i = 0; i < r.piece_count; i++) {
-            eh_jv *p = eh_jv_object();
-            eh_jv_set(p, "seconds", eh_jv_num((double)(r.pieces[i].to - r.pieces[i].from) / EH_SAMPLE_RATE));
-            eh_jv_set(p, "ok", eh_jv_bool(r.pieces[i].ok));
-            eh_jv_set(p, "noise", eh_jv_bool(r.pieces[i].noise));
-            eh_jv_set(p, "unconfirmed", eh_jv_bool(r.pieces[i].unconfirmed));
-            eh_jv_push(pieces, p);
+            gs_jval *p = gs_jval_object();
+            gs_jval_set(p, "seconds", gs_jval_num((double)(r.pieces[i].to - r.pieces[i].from) / EH_SAMPLE_RATE));
+            gs_jval_set(p, "ok", gs_jval_bool(r.pieces[i].ok));
+            gs_jval_set(p, "noise", gs_jval_bool(r.pieces[i].noise));
+            gs_jval_set(p, "unconfirmed", gs_jval_bool(r.pieces[i].unconfirmed));
+            gs_jval_push(pieces, p);
         }
-        eh_jv_set(out, "pieces", pieces);
-        char *line = eh_jv_write(out, false);
+        gs_jval_set(out, "pieces", pieces);
+        char *line = gs_jval_write(out, false);
         puts(line);
         SDL_free(line);
-        eh_jv_free(out);
+        gs_jval_free(out);
     } else if (ok) {
         puts(r.text);
     }

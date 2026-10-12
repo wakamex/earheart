@@ -25,7 +25,7 @@ typedef struct { const eh_model *model; bool skipped; } download_row;
 static struct {
     eh_ui *ui;
     int step;
-    eh_jv *base;
+    gs_jval *base;
     eh_form_baseline baseline;
     char hotkey[64], hotkey_status[400];
     char **mics;
@@ -53,17 +53,17 @@ static const eh_model *cleanup_model(void) {
 static const char *mode_id(int mode) { return mode == 2 ? "clipboard" : mode == 1 ? "paste-copy" : "paste"; }
 
 static void load(void) {
-    const eh_jv *c = Z.base;
-    SDL_strlcpy(Z.hotkey, eh_jv_string(eh_jv_get(c, "hotkey"), ""), sizeof Z.hotkey);
-    Z.cleanup_enabled = eh_jv_boolean(eh_jv_path(c, "cleanup.enabled"), true);
+    const gs_jval *c = Z.base;
+    SDL_strlcpy(Z.hotkey, gs_jval_string(gs_jval_get(c, "hotkey"), ""), sizeof Z.hotkey);
+    Z.cleanup_enabled = gs_jval_boolean(gs_jval_path(c, "cleanup.enabled"), true);
     const eh_model *list[32];
     int n = cleanup_models(list, 32);
     Z.cleanup_model = 0;
-    const char *chosen = eh_jv_string(eh_jv_path(c, "cleanup.builtin.model"), "");
+    const char *chosen = gs_jval_string(gs_jval_path(c, "cleanup.builtin.model"), "");
     for (int i = 0; i < n; i++)
         if (!SDL_strcmp(list[i]->id, chosen) || (!*chosen && list[i]->is_default)) Z.cleanup_model = i;
     Z.style = 0;
-    const char *style = eh_jv_string(eh_jv_path(c, "cleanup.style"), EH_DEFAULT_STYLE);
+    const char *style = gs_jval_string(gs_jval_path(c, "cleanup.style"), EH_DEFAULT_STYLE);
     for (size_t i = 0; i < SDL_arraysize(eh_styles); i++)
         if (!SDL_strcmp(eh_styles[i].id, !SDL_strcmp(style, "custom") ? EH_DEFAULT_STYLE : style)) Z.style = (int)i;
     const char *mode = eh_displayed_output_mode(c);
@@ -74,7 +74,7 @@ static void load(void) {
     SDL_free(Z.mics);
     int count = 0;
     SDL_AudioDeviceID *ids = SDL_GetAudioRecordingDevices(&count);
-    const char *saved = eh_jv_string(eh_jv_path(c, "audio.deviceId"), "");
+    const char *saved = gs_jval_string(gs_jval_path(c, "audio.deviceId"), "");
     Z.mics = SDL_calloc((size_t)count + 2, sizeof *Z.mics);
     Z.mic_count = 0;
     Z.mics[Z.mic_count++] = SDL_strdup("System default");
@@ -90,18 +90,18 @@ static void load(void) {
 }
 
 // The wizard's choices as settings: built-in speech and cleanup, and what the steps asked.
-static eh_jv *collect(void) {
-    eh_jv *n = eh_jv_clone(Z.base);
-    eh_jv_set(n, "hotkey", eh_jv_str(Z.hotkey));
-    eh_jv_set_path(n, "output.mode", eh_jv_str(mode_id(Z.output_mode)));
-    eh_jv_set_path(n, "output.restoreClipboard", eh_jv_bool(true));
-    eh_jv_set_path(n, "stt.engine", eh_jv_str("builtin"));
-    eh_jv_set_path(n, "cleanup.enabled", eh_jv_bool(Z.cleanup_enabled));
-    eh_jv_set_path(n, "cleanup.engine", eh_jv_str("builtin"));
+static gs_jval *collect(void) {
+    gs_jval *n = gs_jval_clone(Z.base);
+    gs_jval_set(n, "hotkey", gs_jval_str(Z.hotkey));
+    gs_jval_set_path(n, "output.mode", gs_jval_str(mode_id(Z.output_mode)));
+    gs_jval_set_path(n, "output.restoreClipboard", gs_jval_bool(true));
+    gs_jval_set_path(n, "stt.engine", gs_jval_str("builtin"));
+    gs_jval_set_path(n, "cleanup.enabled", gs_jval_bool(Z.cleanup_enabled));
+    gs_jval_set_path(n, "cleanup.engine", gs_jval_str("builtin"));
     const eh_model *m = cleanup_model();
-    if (m) eh_jv_set_path(n, "cleanup.builtin.model", eh_jv_str(m->id));
-    eh_jv_set_path(n, "cleanup.style", eh_jv_str(eh_styles[Z.style].id));
-    eh_jv_set_path(n, "audio.deviceId", eh_jv_str(Z.mic > 0 ? Z.mics[Z.mic] : ""));
+    if (m) gs_jval_set_path(n, "cleanup.builtin.model", gs_jval_str(m->id));
+    gs_jval_set_path(n, "cleanup.style", gs_jval_str(eh_styles[Z.style].id));
+    gs_jval_set_path(n, "audio.deviceId", gs_jval_str(Z.mic > 0 ? Z.mics[Z.mic] : ""));
     return n;
 }
 
@@ -121,7 +121,7 @@ static bool all_done(void) {
 static void enter_downloads(void) {
     const eh_model *needed[2];
     int n = 0;
-    const eh_model *stt = eh_catalog_find(EH_MODEL_STT, eh_jv_string(eh_jv_path(Z.base, "stt.builtin.model"), NULL));
+    const eh_model *stt = eh_catalog_find(EH_MODEL_STT, gs_jval_string(gs_jval_path(Z.base, "stt.builtin.model"), NULL));
     if (!stt) stt = eh_catalog_find(EH_MODEL_STT, NULL);
     if (stt) needed[n++] = stt;
     if (Z.cleanup_enabled && cleanup_model()) needed[n++] = cleanup_model();
@@ -152,8 +152,8 @@ static void finish_task(void *arg) {
         Z.saving = false;
         return;
     }
-    eh_jv_free(Z.base);
-    Z.base = eh_jv_clone(eh_settings());
+    gs_jval_free(Z.base);
+    Z.base = gs_jval_clone(eh_settings());
     eh_form_baseline_take(&Z.baseline, Z.base);
     Z.saving = false;
     Z.finish_status[0] = 0;
@@ -263,9 +263,9 @@ static void hotkey_step(void) {
         Z.hotkey_status[0] = 0;
     }
     if (eh_w_button(Z.ui, (gs_rect){ r.x + r.w - bw, r.y + 2, bw, 34 }, "hotkey-clear", "Reset", EH_BTN_PLAIN)) {
-        eh_jv *d = eh_jv_parse(eh_defaults_json, sizeof eh_defaults_json - 1);
-        SDL_strlcpy(Z.hotkey, eh_jv_string(eh_jv_get(d, "hotkey"), ""), sizeof Z.hotkey);
-        eh_jv_free(d);
+        gs_jval *d = gs_jval_parse(eh_defaults_json, sizeof eh_defaults_json - 1);
+        SDL_strlcpy(Z.hotkey, gs_jval_string(gs_jval_get(d, "hotkey"), ""), sizeof Z.hotkey);
+        gs_jval_free(d);
     }
     pg.y += 8;
 #ifdef __linux__
@@ -441,8 +441,8 @@ void eh_wizard_window_open(void) {
         Z.ui = eh_ui_new("Welcome to Earheart", 620, 680, 560, 560);
         if (!Z.ui) return;
         eh_lock();
-        eh_jv_free(Z.base);
-        Z.base = eh_jv_clone(eh_settings());
+        gs_jval_free(Z.base);
+        Z.base = gs_jval_clone(eh_settings());
         load();
         eh_unlock();
         Z.step = 0;
@@ -545,7 +545,7 @@ int eh_wizard_window_frame(void) {
     if (skip) {
         // The settings as they are become the file, so the wizard is not shown again.
         char error[256];
-        eh_settings_save(eh_jv_clone(eh_settings()), error, sizeof error);
+        eh_settings_save(gs_jval_clone(eh_settings()), error, sizeof error);
         Z.outcome = 3;
     }
     if (Z.saving) eh_ui_again(Z.ui, 50);

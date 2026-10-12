@@ -186,31 +186,31 @@ static bool status_ok(int status, char *error, size_t error_size) {
     return false;
 }
 
-static bool truthy(const eh_jv *v) {
+static bool truthy(const gs_jval *v) {
     if (!v) return false;
-    switch (v->type) {
-    case EH_JV_NULL: return false;
-    case EH_JV_BOOL: return v->boolean;
-    case EH_JV_NUMBER: return v->number != 0;
-    case EH_JV_STRING: return v->string[0] != 0;
+    switch (gs_jval_kind(v)) {
+    case GS_JSON_NULL: return false;
+    case GS_JSON_BOOL: return gs_jval_boolean(v, false);
+    case GS_JSON_NUMBER: return gs_jval_number(v, 0) != 0;
+    case GS_JSON_STRING: return gs_jval_string(v, "")[0] != 0;
     default: return true;
     }
 }
 
-static int read_files(const eh_jv *tree, entry **out) {
-    int n = 0, count = tree && tree->type == EH_JV_ARRAY ? eh_jv_count(tree) : 0;
+static int read_files(const gs_jval *tree, entry **out) {
+    int n = 0, count = tree && gs_jval_kind(tree) == GS_JSON_ARRAY ? gs_jval_count(tree) : 0;
     entry *list = SDL_calloc((size_t)count + 1, sizeof *list);
     for (int i = 0; i < count; i++) {
-        const eh_jv *e = eh_jv_at(tree, i);
-        if (!e || e->type != EH_JV_OBJECT || SDL_strcmp(eh_jv_string(eh_jv_get(e, "type"), ""), "file")) continue;
+        const gs_jval *e = gs_jval_at(tree, i);
+        if (!e || gs_jval_kind(e) != GS_JSON_OBJECT || SDL_strcmp(gs_jval_string(gs_jval_get(e, "type"), ""), "file")) continue;
         entry *f = &list[n++];
-        f->path = eh_jv_string(eh_jv_get(e, "path"), "");
+        f->path = gs_jval_string(gs_jval_get(e, "path"), "");
         const char *slash = SDL_strrchr(f->path, '/');
         f->name = slash ? slash + 1 : f->path;
-        const eh_jv *lfs = eh_jv_get(e, "lfs");
-        f->bytes = eh_jv_number(eh_jv_get(e, "size"), 0);
-        if (f->bytes == 0) f->bytes = eh_jv_number(eh_jv_get(lfs, "size"), 0);
-        const char *oid = eh_jv_string(eh_jv_get(lfs, "oid"), "");
+        const gs_jval *lfs = gs_jval_get(e, "lfs");
+        f->bytes = gs_jval_number(gs_jval_get(e, "size"), 0);
+        if (f->bytes == 0) f->bytes = gs_jval_number(gs_jval_get(lfs, "size"), 0);
+        const char *oid = gs_jval_string(gs_jval_get(lfs, "oid"), "");
         bool is_hex = SDL_strlen(oid) == 64;
         for (int k = 0; is_hex && k < 64; k++) is_hex = hex(oid[k]) >= 0;
         for (int k = 0; is_hex && k < 64; k++) f->sha256[k] = lower(oid[k]);
@@ -219,35 +219,35 @@ static int read_files(const eh_jv *tree, entry **out) {
     return n;
 }
 
-static eh_jv *file_json(const eh_hf_repo *r, const char *commit, const entry *f) {
-    eh_jv *o = eh_jv_object();
-    eh_jv_set(o, "name", eh_jv_str(f->name));
-    if (f->bytes != 0) eh_jv_set(o, "bytes", eh_jv_num(f->bytes));
-    if (f->sha256[0]) eh_jv_set(o, "sha256", eh_jv_str(f->sha256));
+static gs_jval *file_json(const eh_hf_repo *r, const char *commit, const entry *f) {
+    gs_jval *o = gs_jval_object();
+    gs_jval_set(o, "name", gs_jval_str(f->name));
+    if (f->bytes != 0) gs_jval_set(o, "bytes", gs_jval_num(f->bytes));
+    if (f->sha256[0]) gs_jval_set(o, "sha256", gs_jval_str(f->sha256));
     char *url = resolve_url(r->owner, r->repo, commit, f->path);
-    eh_jv_set(o, "url", eh_jv_str(url));
+    gs_jval_set(o, "url", gs_jval_str(url));
     SDL_free(url);
     return o;
 }
 
-typedef struct { eh_jv *json; int priority; double bytes; } ranked;
+typedef struct { gs_jval *json; int priority; double bytes; } ranked;
 
 // The versions in order: by the rank of their label, then smallest first, otherwise as found.
-static eh_jv *ranked_result(const eh_hf_repo *r, const char *commit, ranked *v, int n) {
+static gs_jval *ranked_result(const eh_hf_repo *r, const char *commit, ranked *v, int n) {
     for (int i = 1; i < n; i++) {
         ranked moving = v[i];
         int j = i;
         while (j > 0 && (v[j - 1].priority > moving.priority || (v[j - 1].priority == moving.priority && v[j - 1].bytes > moving.bytes))) v[j] = v[j - 1], j--;
         v[j] = moving;
     }
-    eh_jv *out = eh_jv_object(), *list = eh_jv_array();
+    gs_jval *out = gs_jval_object(), *list = gs_jval_array();
     char full[300];
     SDL_snprintf(full, sizeof full, "%s/%s", r->owner, r->repo);
-    eh_jv_set(out, "repo", eh_jv_str(full));
-    eh_jv_set(out, "commit", eh_jv_str(commit));
-    eh_jv_set(out, "recommended", n ? eh_jv_str(eh_jv_string(eh_jv_get(v[0].json, "label"), "")) : eh_jv_null());
-    for (int i = 0; i < n; i++) eh_jv_push(list, v[i].json);
-    eh_jv_set(out, "variants", list);
+    gs_jval_set(out, "repo", gs_jval_str(full));
+    gs_jval_set(out, "commit", gs_jval_str(commit));
+    gs_jval_set(out, "recommended", n ? gs_jval_str(gs_jval_string(gs_jval_get(v[0].json, "label"), "")) : gs_jval_null());
+    for (int i = 0; i < n; i++) gs_jval_push(list, v[i].json);
+    gs_jval_set(out, "variants", list);
     return out;
 }
 
@@ -320,7 +320,7 @@ static int by_name(const void *a, const void *b) {
     return c ? c : SDL_strcmp(x->name, y->name);
 }
 
-static eh_jv *list_ggufs(const eh_hf_repo *r, const char *commit, const entry *files, int count, char *error, size_t error_size) {
+static gs_jval *list_ggufs(const eh_hf_repo *r, const char *commit, const entry *files, int count, char *error, size_t error_size) {
     char (*labels)[160] = SDL_calloc((size_t)count + 1, sizeof *labels);
     const entry **group = SDL_calloc((size_t)count + 1, sizeof *group);
     bool *model = SDL_calloc((size_t)count + 1, 1), *done = SDL_calloc((size_t)count + 1, 1);
@@ -337,14 +337,14 @@ static eh_jv *list_ggufs(const eh_hf_repo *r, const char *commit, const entry *f
         for (int j = i; j < count; j++)
             if (model[j] && !done[j] && !SDL_strcmp(labels[j], labels[i])) group[members++] = &files[j], done[j] = true, total += files[j].bytes;
         SDL_qsort(group, (size_t)members, sizeof *group, by_name);
-        eh_jv *v = eh_jv_object(), *list = eh_jv_array();
-        eh_jv_set(v, "label", eh_jv_str(labels[i]));
-        eh_jv_set(v, "totalBytes", eh_jv_num(total));
-        for (int k = 0; k < members; k++) eh_jv_push(list, file_json(r, commit, group[k]));
-        eh_jv_set(v, "files", list);
+        gs_jval *v = gs_jval_object(), *list = gs_jval_array();
+        gs_jval_set(v, "label", gs_jval_str(labels[i]));
+        gs_jval_set(v, "totalBytes", gs_jval_num(total));
+        for (int k = 0; k < members; k++) gs_jval_push(list, file_json(r, commit, group[k]));
+        gs_jval_set(v, "files", list);
         variants[n++] = (ranked){ v, quant_priority(labels[i]), total };
     }
-    eh_jv *out = found ? ranked_result(r, commit, variants, n) : NULL;
+    gs_jval *out = found ? ranked_result(r, commit, variants, n) : NULL;
     if (!found) fail(error, error_size, "No language-model GGUF files found in this repository");
     SDL_free(labels);
     SDL_free(group);
@@ -472,14 +472,14 @@ static bool same_dir(const char *a, const char *b) {
 
 #define SUPPORTED_STT "Earheart supports sherpa-onnx transducer bundles (encoder, decoder, joiner + tokens.txt), such as Parakeet, and sherpa-onnx Whisper exports (encoder, decoder + tokens.txt)"
 
-static eh_jv *list_stt(const eh_hf_repo *r, const char *commit, const entry *files, int count, char *error, size_t error_size) {
+static gs_jval *list_stt(const eh_hf_repo *r, const char *commit, const entry *files, int count, char *error, size_t error_size) {
     // Shallowest first, and otherwise as found: a bundle at the top of a repository comes before
     // the copies kept in its folders.
     const entry **by_depth = SDL_calloc((size_t)count + 1, sizeof *by_depth), **onnx = SDL_calloc((size_t)count + 1, sizeof *onnx);
     const entry **tokens = SDL_calloc((size_t)count + 1, sizeof *tokens), **all = SDL_calloc((size_t)count + 1, sizeof *all);
     ranked *variants = SDL_calloc((size_t)count + 1, sizeof *variants);
     char (*precisions)[16] = SDL_calloc((size_t)count + 1, sizeof *precisions);
-    eh_jv *out = NULL;
+    gs_jval *out = NULL;
     for (int i = 0; i < count; i++) {
         int j = i;
         while (j > 0 && depth(by_depth[j - 1]->path) > depth(files[i].path)) by_depth[j] = by_depth[j - 1], j--;
@@ -573,9 +573,9 @@ static eh_jv *list_stt(const eh_hf_repo *r, const char *commit, const entry *fil
         if (transducer && !parts[JOINER]) parts[JOINER] = fallback[JOINER];
         if (transducer && !parts[JOINER]) continue;
         int n_parts = transducer ? 3 : 2;
-        eh_jv *v = eh_jv_object(), *list = eh_jv_array(), *sherpa = eh_jv_object();
+        gs_jval *v = gs_jval_object(), *list = gs_jval_array(), *sherpa = gs_jval_object();
         double total = 0;
-        for (int p = 0; p < n_parts; p++) eh_jv_push(list, file_json(r, commit, parts[p])), total += parts[p]->bytes;
+        for (int p = 0; p < n_parts; p++) gs_jval_push(list, file_json(r, commit, parts[p])), total += parts[p]->bytes;
         // Weights kept beside a part, in its folder and under its name.
         for (int i = 0; i < count; i++) {
             const entry *f = by_depth[i];
@@ -585,7 +585,7 @@ static eh_jv *list_stt(const eh_hf_repo *r, const char *commit, const entry *fil
                 size_t stem = SDL_strlen(parts[p]->name) - 5;
                 beside = same_dir(f->path, parts[p]->path) && !SDL_strncmp(f->name, parts[p]->name, stem);
             }
-            if (beside) eh_jv_push(list, file_json(r, commit, f)), total += f->bytes;
+            if (beside) gs_jval_push(list, file_json(r, commit, f)), total += f->bytes;
         }
         // The symbol table named like the bundle, or the plain one, or the first there is.
         char prefix[256], tp[256];
@@ -600,17 +600,17 @@ static eh_jv *list_stt(const eh_hf_repo *r, const char *commit, const entry *fil
             if (!tp[0]) table = tokens[t];
         }
         if (!table) table = tokens[0];
-        eh_jv_push(list, file_json(r, commit, table));
+        gs_jval_push(list, file_json(r, commit, table));
         total += table->bytes;
-        eh_jv_set(v, "label", eh_jv_str(precisions[k]));
-        eh_jv_set(v, "totalBytes", eh_jv_num(total));
-        eh_jv_set(v, "files", list);
-        eh_jv_set(sherpa, "encoder", eh_jv_str(parts[ENCODER]->name));
-        eh_jv_set(sherpa, "decoder", eh_jv_str(parts[DECODER]->name));
-        if (transducer) eh_jv_set(sherpa, "joiner", eh_jv_str(parts[JOINER]->name));
-        eh_jv_set(sherpa, "tokens", eh_jv_str(table->name));
-        eh_jv_set(sherpa, "modelType", eh_jv_str(model_type));
-        eh_jv_set(v, "sherpa", sherpa);
+        gs_jval_set(v, "label", gs_jval_str(precisions[k]));
+        gs_jval_set(v, "totalBytes", gs_jval_num(total));
+        gs_jval_set(v, "files", list);
+        gs_jval_set(sherpa, "encoder", gs_jval_str(parts[ENCODER]->name));
+        gs_jval_set(sherpa, "decoder", gs_jval_str(parts[DECODER]->name));
+        if (transducer) gs_jval_set(sherpa, "joiner", gs_jval_str(parts[JOINER]->name));
+        gs_jval_set(sherpa, "tokens", gs_jval_str(table->name));
+        gs_jval_set(sherpa, "modelType", gs_jval_str(model_type));
+        gs_jval_set(v, "sherpa", sherpa);
         variants[n++] = (ranked){ v, precision_priority(precisions[k]), total };
     }
     if (!n) {
@@ -628,21 +628,21 @@ done:
     return out;
 }
 
-eh_jv *eh_hf_listing(eh_model_kind kind, const eh_hf_repo *r, int info_status, const eh_jv *info, int tree_status, const eh_jv *tree, char *error, size_t error_size) {
+gs_jval *eh_hf_listing(eh_model_kind kind, const eh_hf_repo *r, int info_status, const gs_jval *info, int tree_status, const gs_jval *tree, char *error, size_t error_size) {
     if (!status_ok(info_status, error, error_size)) return NULL;
-    if (truthy(eh_jv_get(info, "gated"))) { fail(error, error_size, "This repository is gated — Earheart can only download public models"); return NULL; }
+    if (truthy(gs_jval_get(info, "gated"))) { fail(error, error_size, "This repository is gated — Earheart can only download public models"); return NULL; }
     if (!status_ok(tree_status, error, error_size)) return NULL;
     char commit[256];
     eh_hf_commit(r, info, commit, sizeof commit);
     entry *files;
     int count = read_files(tree, &files);
-    eh_jv *out = kind == EH_MODEL_CLEANUP ? list_ggufs(r, commit, files, count, error, error_size) : list_stt(r, commit, files, count, error, error_size);
+    gs_jval *out = kind == EH_MODEL_CLEANUP ? list_ggufs(r, commit, files, count, error, error_size) : list_stt(r, commit, files, count, error, error_size);
     SDL_free(files);
     return out;
 }
 
-void eh_hf_commit(const eh_hf_repo *r, const eh_jv *info, char *out, size_t size) {
-    const char *sha = eh_jv_string(eh_jv_get(info, "sha"), "");
+void eh_hf_commit(const eh_hf_repo *r, const gs_jval *info, char *out, size_t size) {
+    const char *sha = gs_jval_string(gs_jval_get(info, "sha"), "");
     SDL_strlcpy(out, *sha ? sha : r->ref[0] ? r->ref : "main", size);
 }
 
@@ -664,53 +664,53 @@ static void slug(const char *s, char *out, size_t size) {
     out[at] = 0;
 }
 
-eh_jv *eh_hf_model(eh_model_kind kind, const char *repo_full, const eh_jv *variant) {
-    const char *label = eh_jv_string(eh_jv_get(variant, "label"), ""), *slash = SDL_strchr(repo_full, '/');
+gs_jval *eh_hf_model(eh_model_kind kind, const char *repo_full, const gs_jval *variant) {
+    const char *label = gs_jval_string(gs_jval_get(variant, "label"), ""), *slash = SDL_strchr(repo_full, '/');
     const char *repo_name = slash && slash[1] ? slash + 1 : repo_full;
-    const eh_jv *files = eh_jv_get(variant, "files");
-    double total = eh_jv_number(eh_jv_get(variant, "totalBytes"), 0);
+    const gs_jval *files = gs_jval_get(variant, "files");
+    double total = gs_jval_number(gs_jval_get(variant, "totalBytes"), 0);
     char a[300], b[200], text[900], size_note[48] = "";
-    eh_jv *m = eh_jv_object(), *source = eh_jv_object(), *list = eh_jv_array();
+    gs_jval *m = gs_jval_object(), *source = gs_jval_object(), *list = gs_jval_array();
     slug(repo_full, a, sizeof a);
     slug(label, b, sizeof b);
     SDL_snprintf(text, sizeof text, "custom-%s-%s", a, b);
-    eh_jv_set(m, "id", eh_jv_str(text));
-    eh_jv_set(m, "kind", eh_jv_str(kind == EH_MODEL_CLEANUP ? "cleanup" : "stt"));
+    gs_jval_set(m, "id", gs_jval_str(text));
+    gs_jval_set(m, "kind", gs_jval_str(kind == EH_MODEL_CLEANUP ? "cleanup" : "stt"));
     SDL_snprintf(text, sizeof text, "%s · %s", repo_name, label);
-    eh_jv_set(m, "label", eh_jv_str(text));
-    int with_sum = 0, count = eh_jv_count(files);
-    for (int i = 0; i < count; i++) with_sum += eh_jv_get(eh_jv_at(files, i), "sha256") != NULL;
+    gs_jval_set(m, "label", gs_jval_str(text));
+    int with_sum = 0, count = gs_jval_count(files);
+    for (int i = 0; i < count; i++) with_sum += gs_jval_get(gs_jval_at(files, i), "sha256") != NULL;
     if (total != 0) SDL_snprintf(size_note, sizeof size_note, " · ~%.*f GB", total < 1e9 ? 2 : 1, total / 1e9);
     SDL_snprintf(text, sizeof text, "Runs on this computer · Hugging Face · %s · %s%s%s", repo_full, label, size_note,
                  !with_sum ? " · not checksum-verified" : with_sum == count ? " · checksum-verified" : " · partially checksum-verified");
-    eh_jv_set(m, "note", eh_jv_str(text));
-    eh_jv_set(m, "custom", eh_jv_bool(true));
-    eh_jv_set(source, "repo", eh_jv_str(repo_full));
-    eh_jv_set(source, kind == EH_MODEL_CLEANUP ? "quant" : "variant", eh_jv_str(label));
-    eh_jv_set(m, "source", source);
+    gs_jval_set(m, "note", gs_jval_str(text));
+    gs_jval_set(m, "custom", gs_jval_bool(true));
+    gs_jval_set(source, "repo", gs_jval_str(repo_full));
+    gs_jval_set(source, kind == EH_MODEL_CLEANUP ? "quant" : "variant", gs_jval_str(label));
+    gs_jval_set(m, "source", source);
     for (int i = 0; i < count; i++) {
-        const eh_jv *f = eh_jv_at(files, i);
-        eh_jv *o = eh_jv_object();
-        eh_jv_set(o, "name", eh_jv_clone(eh_jv_get(f, "name")));
-        eh_jv_set(o, "url", eh_jv_clone(eh_jv_get(f, "url")));
-        if (eh_jv_get(f, "bytes")) eh_jv_set(o, "bytes", eh_jv_clone(eh_jv_get(f, "bytes")));
-        if (eh_jv_get(f, "sha256")) eh_jv_set(o, "sha256", eh_jv_clone(eh_jv_get(f, "sha256")));
-        eh_jv_push(list, o);
+        const gs_jval *f = gs_jval_at(files, i);
+        gs_jval *o = gs_jval_object();
+        gs_jval_set(o, "name", gs_jval_clone(gs_jval_get(f, "name")));
+        gs_jval_set(o, "url", gs_jval_clone(gs_jval_get(f, "url")));
+        if (gs_jval_get(f, "bytes")) gs_jval_set(o, "bytes", gs_jval_clone(gs_jval_get(f, "bytes")));
+        if (gs_jval_get(f, "sha256")) gs_jval_set(o, "sha256", gs_jval_clone(gs_jval_get(f, "sha256")));
+        gs_jval_push(list, o);
     }
-    eh_jv_set(m, "files", list);
+    gs_jval_set(m, "files", list);
     if (kind == EH_MODEL_CLEANUP) {
-        eh_jv *gguf = eh_jv_object();
-        eh_jv_set(gguf, "file", eh_jv_clone(eh_jv_get(eh_jv_at(files, 0), "name")));
-        eh_jv_set(m, "gguf", gguf);
+        gs_jval *gguf = gs_jval_object();
+        gs_jval_set(gguf, "file", gs_jval_clone(gs_jval_get(gs_jval_at(files, 0), "name")));
+        gs_jval_set(m, "gguf", gguf);
     } else {
-        eh_jv_set(m, "sherpa", eh_jv_clone(eh_jv_get(variant, "sherpa")));
+        gs_jval_set(m, "sherpa", gs_jval_clone(gs_jval_get(variant, "sherpa")));
     }
     return m;
 }
 
 /* ---------------- asking Hugging Face ---------------- */
 
-static eh_jv *get_json(const char *url, int *status, char *error, size_t error_size) {
+static gs_jval *get_json(const char *url, int *status, char *error, size_t error_size) {
     static const char *const headers[] = { "Accept: application/json", NULL };
     gs_http_request req = { .url = url, .headers = headers, .follow = true, .timeout_ms = 15000 };
     char *body = NULL;
@@ -721,32 +721,32 @@ static eh_jv *get_json(const char *url, int *status, char *error, size_t error_s
         SDL_free(body);
         return NULL;
     }
-    eh_jv *v = *status >= 200 && *status < 300 ? eh_jv_parse(body ? body : "", len) : eh_jv_null();
+    gs_jval *v = *status >= 200 && *status < 300 ? gs_jval_parse(body ? body : "", len) : gs_jval_null();
     if (!v) fail(error, error_size, "Unexpected response from Hugging Face");
     SDL_free(body);
     return v;
 }
 
-eh_jv *eh_hf_discover(eh_model_kind kind, const char *input, char *error, size_t error_size) {
+gs_jval *eh_hf_discover(eh_model_kind kind, const char *input, char *error, size_t error_size) {
     eh_hf_repo r;
     if (!eh_hf_parse(input, &r, error, error_size)) return NULL;
     char url[1024], commit[256], ref[400] = "";
     encode(ref, sizeof ref, r.ref, SDL_strlen(r.ref));
     SDL_snprintf(url, sizeof url, "https://huggingface.co/api/models/%s/%s%s%s", r.owner, r.repo, r.ref[0] ? "/revision/" : "", ref);
     int info_status = 0, tree_status = 200;
-    eh_jv *info = get_json(url, &info_status, error, error_size), *tree = NULL, *out = NULL;
+    gs_jval *info = get_json(url, &info_status, error, error_size), *tree = NULL, *out = NULL;
     if (!info) return NULL;
     // The first answer may already settle it; the files are asked for only when it does not.
-    if (info_status >= 200 && info_status < 300 && !truthy(eh_jv_get(info, "gated"))) {
+    if (info_status >= 200 && info_status < 300 && !truthy(gs_jval_get(info, "gated"))) {
         eh_hf_commit(&r, info, commit, sizeof commit);
         char c[400] = "";
         encode(c, sizeof c, commit, SDL_strlen(commit));
         SDL_snprintf(url, sizeof url, "https://huggingface.co/api/models/%s/%s/tree/%s?recursive=true", r.owner, r.repo, c);
         tree = get_json(url, &tree_status, error, error_size);
-        if (!tree) { eh_jv_free(info); return NULL; }
+        if (!tree) { gs_jval_free(info); return NULL; }
     }
     out = eh_hf_listing(kind, &r, info_status, info, tree_status, tree, error, error_size);
-    eh_jv_free(info);
-    eh_jv_free(tree);
+    gs_jval_free(info);
+    gs_jval_free(tree);
     return out;
 }
