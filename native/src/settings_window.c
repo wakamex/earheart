@@ -9,6 +9,7 @@
 #include "catalog.h"
 #include "chunked.h"
 #include "commit.h"
+#include "correction_window.h"
 #include "defaults.h"
 #include "deliver.h"
 #include "desk.h"
@@ -53,6 +54,7 @@ static struct {
     float section_y[SECTIONS], content_h, card_h[24], view_top, view_bottom;
     int card;
     bool wizard_banner, open_wizard;
+    char *correct;                   // a transcript whose Correct… was pressed: the editor opens after the frame
     // General.
     char hotkeys[4][64];
     status hotkey_status[4];
@@ -924,6 +926,11 @@ static void history(void) {
 #define ROW_BUTTON(ID, LABEL) (SDL_snprintf(id, sizeof id, "history-%s-%d", ID, row), x -= eh_w_button_width(W.ui, LABEL) + 8, eh_w_button(W.ui, (gs_rect){ x + 8, meta.y, eh_w_button_width(W.ui, LABEL), 30 }, id, LABEL, EH_BTN_PLAIN))
         if (eh_jv_boolean(eh_jv_get(item, "cleaned"), false) && raw && SDL_strcmp(raw, body))
             if (ROW_BUTTON("original", copied && W.copied_row == row && W.copied_kind == 1 ? "Copied" : "Copy original")) copy_start(raw, row, 1);
+        if (ROW_BUTTON("correct", "Correct…")) {
+            SDL_free(W.correct);
+            W.correct = SDL_strdup(body);
+            W.history_status.tone = ST_NONE;
+        }
         if (ROW_BUTTON("copy", copied && W.copied_row == row && W.copied_kind == 0 ? "Copied" : "Copy")) copy_start(body, row, 0);
         if (full > line * 3 + 1 && ROW_BUTTON("more", W.expanded & 1u << row ? "Show less" : "Show more")) W.expanded ^= 1u << row;
 #undef ROW_BUTTON
@@ -1151,6 +1158,13 @@ int eh_settings_window_frame(void) {
     if (W.open_wizard) {
         W.open_wizard = false;
         eh_wizard_window_open();
+    }
+    if (W.correct) {
+        char error[200];
+        if (!eh_correction_window_open(W.correct, error, sizeof error)) say(&W.history_status, ST_ERR, "%s", error);
+        SDL_free(W.correct);
+        W.correct = NULL;
+        again = 0;
     }
     return again;
 }

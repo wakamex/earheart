@@ -26,6 +26,7 @@ struct eh_ui {
     bool by_keyboard;        // the focus came from the keyboard, so it is marked
     bool activate;           // Space or Enter this frame, for the control with the focus
     int arrow;               // Up or Left: -1; Down or Right: 1
+    bool arrow_shift;
     // The page.
     bool scrolling;
     gs_rect view;
@@ -106,6 +107,30 @@ void eh_ui_free(eh_ui *ui) {
 SDL_Window *eh_ui_window(eh_ui *ui) { return ui->win; }
 gs_ui *eh_ui_gs(eh_ui *ui) { return ui->gs; }
 bool eh_ui_capturing(eh_ui *ui) { return ui->capturing != 0; }
+bool eh_ui_escaped(eh_ui *ui) { return ui->escape; }
+float eh_ui_pointer_x(eh_ui *ui) { return ui->mx; }
+float eh_ui_pointer_y(eh_ui *ui) { return ui->my; }
+bool eh_ui_pointer_down(eh_ui *ui) { return ui->down; }
+
+// A control of the caller's own in the Tab order: true when it has the keyboard. `arrow` gets the
+// arrow key pressed for it this frame (-1, 0 or 1) and `shift` whether Shift was held.
+bool eh_ui_custom_stop(eh_ui *ui, const char *id, gs_rect r, int *arrow, bool *shift, bool *activated) {
+    if (ui->inert) return false;
+    Uint32 h = 2166136261u;
+    for (const char *c = id; *c; c++) h = (h ^ (unsigned char)*c) * 16777619u;
+    if (ui->count < ORDER) {
+        stop *s = &ui->order[ui->count++];
+        s->id = h ? h : 1, s->r = r, s->field = false, s->paged = ui->scrolling;
+        SDL_strlcpy(s->name, id, sizeof s->name);
+    }
+    bool focused = ui->focus == (h ? h : 1);
+    if (arrow) *arrow = focused ? ui->arrow : 0;
+    if (shift) *shift = focused && ui->arrow_shift;
+    if (activated) *activated = focused && ui->activate;
+    return focused;
+}
+
+bool eh_ui_keyboard_focus(eh_ui *ui) { return ui->by_keyboard; }
 bool eh_ui_asking(eh_ui *ui) { return ui->asking; }
 
 bool eh_ui_close_asked(eh_ui *ui) {
@@ -222,9 +247,10 @@ static bool take_event(eh_ui *ui, const SDL_Event *e) {
             return true;
         }
         bool field = is_field_focused(ui);
-        if (!field && (k == SDLK_SPACE || k == SDLK_RETURN || k == SDLK_KP_ENTER)) { ui->activate = true; return true; }
-        if (!field && (k == SDLK_UP || k == SDLK_LEFT)) ui->arrow = -1;
-        if (!field && (k == SDLK_DOWN || k == SDLK_RIGHT)) ui->arrow = 1;
+        bool chord = e->key.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI | SDL_KMOD_ALT);  // a shortcut, which is the window's
+        if (!field && !chord && (k == SDLK_SPACE || k == SDLK_RETURN || k == SDLK_KP_ENTER)) { ui->activate = true; return true; }
+        if (!field && (k == SDLK_UP || k == SDLK_LEFT)) ui->arrow = -1, ui->arrow_shift = (e->key.mod & SDL_KMOD_SHIFT) != 0;
+        if (!field && (k == SDLK_DOWN || k == SDLK_RIGHT)) ui->arrow = 1, ui->arrow_shift = (e->key.mod & SDL_KMOD_SHIFT) != 0;
         break;
     }
     case SDL_EVENT_KEY_UP: case SDL_EVENT_TEXT_INPUT: case SDL_EVENT_TEXT_EDITING:

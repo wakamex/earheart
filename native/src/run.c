@@ -22,6 +22,7 @@
 #include "paths.h"
 #include "recorder.h"
 #include "settings.h"
+#include "correction_window.h"
 #include "settings_window.h"
 #include "wizard_window.h"
 #include "stb_image.h"
@@ -104,6 +105,13 @@ static void act(void *user) {
 
 static void spawn_action(action a) { eh_spawn(act, (void *)(intptr_t)a); }
 
+// Tells the main thread to do something that is its own to do: 1 rebuild the tray, 2 open the
+// settings, 3 open the wizard, 4 open the correction editor on the last transcript.
+static void wake(int what) {
+    SDL_Event e = { .user = { .type = R.refresh_event, .code = what } };
+    SDL_PushEvent(&e);
+}
+
 // A hotkey was pressed: which one is looked up under the lock, where the table is kept.
 static void fired(void *user) {
     int id = (int)(intptr_t)user;
@@ -112,6 +120,7 @@ static void fired(void *user) {
     case EH_HK_RECORD: eh_pipeline_toggle(); break;
     case EH_HK_PAUSE: eh_pipeline_pause_toggle(); break;
     case EH_HK_DISCARD: eh_pipeline_discard(); break;
+    case EH_HK_CORRECT: wake(4); break;
     default: break;
     }
 }
@@ -121,7 +130,8 @@ static void hotkey_fired(int id) { eh_spawn(fired, (void *)(intptr_t)id); }
 // Called on the instance listener's thread, which is live before the app is.
 static void instance_args(int argc, char **argv) {
     for (int i = 0; i < argc; i++) {
-        if (!SDL_strcmp(argv[i], "--settings")) { settings_click(NULL, NULL); continue; }
+        if (!SDL_strcmp(argv[i], "--settings")) { wake(2); continue; }
+        if (!SDL_strcmp(argv[i], "--correct-last")) { wake(4); continue; }
         action a = !SDL_strcmp(argv[i], "--toggle") ? ACT_TOGGLE : !SDL_strcmp(argv[i], "--pause") ? ACT_PAUSE : !SDL_strcmp(argv[i], "--discard") ? ACT_DISCARD : ACT_HOTKEYS;
         if (a == ACT_HOTKEYS) continue;
         if (SDL_GetAtomicInt(&R.ready)) { spawn_action(a); continue; }
@@ -276,6 +286,16 @@ static void settings_changed(void *user, const eh_jv *previous, const eh_jv *cur
     SDL_PushEvent(&e);
 }
 
+// On the main thread: the editor on the newest saved transcript, when no dictation is under way.
+static void correct_last(void) {
+    eh_lock();
+    char *text = SDL_strdup(eh_jv_string(eh_jv_get(eh_jv_at(eh_history_list(), 0), "text"), ""));
+    eh_unlock();
+    char error[200];
+    if (!eh_correction_window_open(text, error, sizeof error)) SDL_Log("correction editor not opened: %s", error);
+    SDL_free(text);
+}
+
 static bool engine_check(void) {
     bool ok = true;
     static const char *const kinds[] = { "stt", "cleanup" };
@@ -367,7 +387,7 @@ int eh_run(int argc, char **argv) {
         if (check && !engine_check()) status = 1;
     } else {
         // The overlay says when it wants its next frame; until then the loop sleeps on events.
-        bool settings_open = false, wizard_open = false;
+        bool settings_open = false, wizard_open = false, correction_open = false;
         for (int wait = -1;;) {
             SDL_Event e;
             if (SDL_WaitEventTimeout(&e, wait)) {
@@ -376,19 +396,21 @@ int eh_run(int argc, char **argv) {
                     if (e.type == R.refresh_event && e.user.code == 1) refresh_tray();
                     if (e.type == R.refresh_event && e.user.code == 2) eh_settings_window_open(NULL);
                     if (e.type == R.refresh_event && e.user.code == 3) eh_wizard_window_open();
-                    if (!eh_overlay_event(&e) && !eh_settings_window_event(&e)) eh_wizard_window_event(&e);
+                    if (e.type == R.refresh_event && e.user.code == 4) correct_last();
+                    if (!eh_overlay_event(&e) && !eh_settings_window_event(&e) && !eh_wizard_window_event(&e)) eh_correction_window_event(&e);
                 } while (SDL_PollEvent(&e));
             }
             wait = eh_overlay_frame();
-            int windows[2] = { eh_settings_window_frame(), eh_wizard_window_frame() };
-            for (int i = 0; i < 2; i++)
+            int windows[3] = { eh_settings_window_frame(), eh_wizard_window_frame(), eh_correction_window_frame() };
+            for (int i = 0; i < 3; i++)
                 if (windows[i] >= 0 && (wait < 0 || windows[i] < wait)) wait = windows[i];
             // A window one of them opened or closed is drawn at once.
-            if (eh_settings_window_is_open() != settings_open || eh_wizard_window_is_open() != wizard_open) wait = 0;
-            settings_open = eh_settings_window_is_open(), wizard_open = eh_wizard_window_is_open();
+            if (eh_settings_window_is_open() != settings_open || eh_wizard_window_is_open() != wizard_open || eh_correction_window_is_open() != correction_open) wait = 0;
+            settings_open = eh_settings_window_is_open(), wizard_open = eh_wizard_window_is_open(), correction_open = eh_correction_window_is_open();
         }
     }
 done:
+    eh_correction_window_close();
     eh_wizard_window_close();
     eh_settings_window_close();
     eh_overlay_quit();

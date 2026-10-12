@@ -38,6 +38,15 @@ void eh_ui_again(eh_ui *ui, int ms);  // asks for another frame within `ms`, for
 void eh_ui_inert(eh_ui *ui, bool inert, bool dim);
 void eh_ui_focus(eh_ui *ui, const char *id);  // NULL: nothing has the keyboard
 bool eh_ui_focused(eh_ui *ui, const char *id);
+bool eh_ui_escaped(eh_ui *ui);  // Escape was pressed for this frame, with a field focused or a question open
+float eh_ui_pointer_x(eh_ui *ui);
+float eh_ui_pointer_y(eh_ui *ui);
+bool eh_ui_pointer_down(eh_ui *ui);
+// A control of the caller's own in the Tab order: true when it has the keyboard. `arrow` gets the
+// arrow key pressed for it this frame (-1, 0 or 1), `shift` whether Shift was held with it, and
+// `activated` whether Space or Enter was pressed on it.
+bool eh_ui_custom_stop(eh_ui *ui, const char *id, gs_rect r, int *arrow, bool *shift, bool *activated);
+bool eh_ui_keyboard_focus(eh_ui *ui);  // the focus came from the keyboard, so it is to be marked
 // The Tab order of the frame last drawn, for tests: how many stops, the name of one, where one is.
 int eh_ui_stops(eh_ui *ui);
 const char *eh_ui_stop_name(eh_ui *ui, int index);
