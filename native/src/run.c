@@ -164,16 +164,21 @@ static void fired(void *user) {
 
 static void hotkey_fired(int id) { eh_spawn(fired, (void *)(intptr_t)id); }
 
-// Called on the instance listener's thread, which is live before the app is.
+// Called on the instance listener's thread, which is live before the app is. A second start that
+// asks for nothing opens the settings, as the Electron build's does: the app is in the tray and
+// starting it again is how a user asks where it went.
 static void instance_args(int argc, char **argv) {
+    bool asked = false;
     for (int i = 0; i < argc; i++) {
-        if (!SDL_strcmp(argv[i], "--settings")) { wake(2); continue; }
-        if (!SDL_strcmp(argv[i], "--correct-last")) { wake(4); continue; }
+        if (!SDL_strcmp(argv[i], "--settings")) continue;
+        if (!SDL_strcmp(argv[i], "--correct-last")) { wake(4); asked = true; continue; }
         action a = !SDL_strcmp(argv[i], "--toggle") ? ACT_TOGGLE : !SDL_strcmp(argv[i], "--pause") ? ACT_PAUSE : !SDL_strcmp(argv[i], "--discard") ? ACT_DISCARD : ACT_HOTKEYS;
         if (a == ACT_HOTKEYS) continue;
+        asked = true;
         if (SDL_GetAtomicInt(&R.ready)) { spawn_action(a); continue; }
         for (int seen = SDL_GetAtomicInt(&R.early); !SDL_CompareAndSwapAtomicInt(&R.early, seen, seen | 1 << a); seen = SDL_GetAtomicInt(&R.early)) {}
     }
+    if (!asked) wake(2);
 }
 
 /* ---------------- hotkeys ---------------- */
@@ -390,7 +395,9 @@ int eh_run(int argc, char **argv) {
     SDL_CreateDirectory(data);
     // One instance. A later one hands over what it was asked to do and leaves.
     if (!smoke && !gs_instance_acquire(data, instance_args)) {
-        if (!gs_instance_forward(data, argc - 1, argv + 1)) { fprintf(stderr, "earheart: another instance is running and did not answer\n"); return 1; }
+        // An empty request is not delivered, so a start that asks for nothing says what it means.
+        char *settings[] = { "--settings" };
+        if (!gs_instance_forward(data, argc > 1 ? argc - 1 : 1, argc > 1 ? argv + 1 : settings)) { fprintf(stderr, "earheart: another instance is running and did not answer\n"); return 1; }
         return 0;
     }
     if (forwardable && !smoke) fprintf(stderr, "earheart: no instance was running; started one\n");
@@ -487,6 +494,8 @@ int eh_run(int argc, char **argv) {
         }
     }
 done:
+    // Said so that a log which stops without it shows the run before did not end by quitting.
+    SDL_Log("quit");
     eh_correction_window_close();
     eh_wizard_window_close();
     eh_settings_window_close();

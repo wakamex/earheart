@@ -80,6 +80,15 @@ run() {  # $1: how the dictation is started and stopped; $2: what to call it
 }
 run press "hotkey" 1
 run "$bin/earheart --toggle" "second instance" 2
+# A second start that asks for nothing opens the settings: the way back to an app in the tray.
+# Looked for on Linux, where the test can ask the display for the window.
+if [ "$(uname -s)" = Linux ]; then
+    [ -z "$(xdotool search --name '^Earheart$')" ] || fail "the settings were open before they were asked for"
+    "$bin/earheart" || fail "a second start with no arguments failed"
+    sleep 2
+    [ -n "$(xdotool search --name '^Earheart$')" ] || fail "a second start with no arguments did not open the settings"
+    echo "second start: settings opened"
+fi
 kill $app
 wait $app 2>/dev/null
 [ "$(grep -c '"text"' "$EARHEART_DATA/history.json")" = 2 ] || fail "history does not hold both dictations"
