@@ -390,7 +390,9 @@ int eh_run(int argc, char **argv) {
         bool settings_open = false, wizard_open = false, correction_open = false;
         for (int wait = -1;;) {
             SDL_Event e;
-            if (SDL_WaitEventTimeout(&e, wait)) {
+            // Never longer than a second: a signal to quit is noticed when events are next looked
+            // at, and on macOS nothing wakes a wait for it.
+            if (SDL_WaitEventTimeout(&e, wait < 0 || wait > 1000 ? 1000 : wait)) {
                 do {
                     if (e.type == SDL_EVENT_QUIT) goto done;
                     if (e.type == R.refresh_event && e.user.code == 1) refresh_tray();
