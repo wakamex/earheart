@@ -7,6 +7,7 @@
 #include "settings_window.h"
 #include <math.h>
 #include "app.h"
+#include "autostart.h"
 #include "catalog.h"
 #include "chunked.h"
 #include "commit.h"
@@ -63,6 +64,7 @@ static struct {
     float section_y[SECTIONS], content_h, card_h[24], view_top, view_bottom;
     int card;
     bool wizard_banner, open_wizard;
+    bool reads_login_entry;          // the app, not a test: the login entry is the system's own
     char *correct;                   // a transcript whose Correct… was pressed: the editor opens after the frame
     // General.
     char hotkeys[4][64];
@@ -72,6 +74,7 @@ static struct {
     char saved_mic[256];
     bool mic_missing;
     int output_mode;
+    bool start_on_boot;
     status accessibility;
     // Live, speech, cleanup.
     bool live_preview;
@@ -173,6 +176,7 @@ static void populate(void) {
     const gs_jval *c = W.base;
     for (int i = 0; i < 4; i++) SDL_strlcpy(W.hotkeys[i], gs_jval_string(gs_jval_get(c, hotkey_paths[i]), ""), sizeof W.hotkeys[i]);
     W.output_mode = output_mode_of(c);
+    W.start_on_boot = gs_jval_boolean(gs_jval_get(c, "startOnBoot"), false);
     SDL_strlcpy(W.saved_mic, gs_jval_string(gs_jval_path(c, "audio.deviceId"), ""), sizeof W.saved_mic);
     load_microphones();
     W.live_preview = gs_jval_boolean(gs_jval_path(c, "stt.livePreview.enabled"), true);
@@ -252,6 +256,7 @@ static gs_jval *collect(void) {
     for (int i = 0; i < 4; i++) gs_jval_set(n, hotkey_paths[i], gs_jval_str(W.hotkeys[i]));
     gs_jval_set_path(n, "output.mode", gs_jval_str(W.output_mode == 2 ? "clipboard" : W.output_mode == 1 ? "paste-copy" : "paste"));
     gs_jval_set_path(n, "output.restoreClipboard", gs_jval_bool(true));
+    gs_jval_set(n, "startOnBoot", gs_jval_bool(W.start_on_boot));
     gs_jval_set_path(n, "audio.deviceId", gs_jval_str(W.mic == 0 ? "" : W.mic_missing && W.mic == W.mic_count - 1 ? W.saved_mic : W.mics[W.mic]));
     double before = gs_jval_number(gs_jval_path(W.base, "audio.maxRecordingSeconds"), 600);
     gs_jval_set_path(n, "audio.maxRecordingSeconds", gs_jval_num(floor(typed(W.max_seconds, 10, 3600, before) + 0.5)));
@@ -675,6 +680,12 @@ static void general(void) {
     hint("Auto-paste types into the focused app, which macOS allows only with the Accessibility permission. If pasting stopped working, click here to check it and open the System Settings pane, then allow Earheart.");
     card_end();
 #endif
+}
+
+static void start_on_login(void) {
+    card_begin(NULL);
+    switch_row("start-on-boot", "Start Earheart when I log in", "Launches in the background (system tray) after you sign in.", &W.start_on_boot);
+    card_end();
 }
 
 static void live(void) {
@@ -1194,6 +1205,8 @@ void eh_settings_window_open(const char *section) {
         eh_lock();
         gs_jval_free(W.base);
         W.base = gs_jval_clone(eh_settings());
+        // Start on login is shown as the system has it, which is what a save would otherwise undo.
+        if (W.reads_login_entry) gs_jval_set(W.base, "startOnBoot", gs_jval_bool(eh_autostart_enabled()));
         populate();
         W.save.tone = ST_NONE;
         W.saving = W.close_when_saved = W.wizard_banner = false;
@@ -1220,6 +1233,7 @@ void eh_settings_window_open_from_wizard(void) {
 }
 
 bool eh_settings_window_is_open(void) { return W.ui != NULL; }
+void eh_settings_window_reads_login_entry(bool on) { W.reads_login_entry = on; }
 
 void eh_settings_window_close(void) {
     if (!W.ui) return;
@@ -1278,6 +1292,7 @@ int eh_settings_window_frame(void) {
         card_end();
     }
     general();
+    start_on_login();
     live();
     speech();
     cleanup();

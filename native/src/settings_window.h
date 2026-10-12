@@ -9,6 +9,9 @@ void eh_settings_window_open(const char *section);
 // Opens it afresh with the wizard's choices and a line saying where they came from.
 void eh_settings_window_open_from_wizard(void);
 bool eh_settings_window_is_open(void);
+// Whether the start-on-login switch is shown as the system has it. The app turns this on; tests
+// leave it off, so they never read or write the user's own login entry.
+void eh_settings_window_reads_login_entry(bool on);
 void eh_settings_window_close(void);
 bool eh_settings_window_event(const SDL_Event *e);  // true when the event was the window's
 // Draws a frame. Returns in how many milliseconds the window wants the next one without an event,

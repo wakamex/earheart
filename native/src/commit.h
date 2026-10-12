@@ -28,3 +28,8 @@ gs_jval *eh_vocabulary_terms(const gs_jval *terms);
 gs_jval *eh_vocabulary_merge(const gs_jval *baseline, const gs_jval *edited, const gs_jval *live);
 // The list with one more spelling, or NULL with the reason it cannot be added.
 gs_jval *eh_vocabulary_remember(const gs_jval *terms, const char *spelling, char *error, size_t error_size);
+
+// What makes the saved "startOnBoot" true of the system: called after every save that goes through.
+// The app sets it to the login entry's switch; without one, saving changes nothing outside the file.
+void eh_commit_on_start_on_boot(void (*apply)(bool enabled));
+

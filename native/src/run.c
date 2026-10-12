@@ -11,6 +11,8 @@
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include "app.h"
+#include "autostart.h"
+#include "commit.h"
 #include "deliver.h"
 #include "gs_desk.h"
 #include "gs_notify.h"
@@ -219,8 +221,17 @@ static void apply_hotkeys(void) {
 // The hotkeys, and then what a start shows (announceStartup of main/setup-notices.js): the wizard
 // on a first run, the settings when the record hotkey could not be registered or when asked for;
 // started hidden, nothing. Windows are opened by the main thread, which is told by an event.
+// The login entry made to say what the setting says. It names the program where it is now, so it
+// is written again at every start: a program that was moved still starts at the next login.
+static void apply_start_on_boot(bool enabled) {
+    char error[256];
+    if (enabled == eh_autostart_enabled() && !enabled) return;
+    if (!eh_autostart_set(enabled, error, sizeof error)) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "could not apply start-on-boot: %s", error);
+}
+
 static void startup(void *user) {
     apply_hotkeys();
+    if (R.announce) apply_start_on_boot(eh_setting_bool("startOnBoot"));
     if (!R.announce) return;
     eh_hotkey_result record = eh_hotkeys_status(EH_HK_RECORD);
     eh_stt_readiness ready = eh_stt_ready(gs_jval_get(eh_settings(), "stt"));
@@ -410,6 +421,10 @@ int eh_run(int argc, char **argv) {
     eh_unlock();
     for (int i = 1; i < argc; i++) R.hidden = R.hidden || !SDL_strcmp(argv[i], "--hidden");
     R.announce = !smoke;
+    if (!smoke) {
+        eh_commit_on_start_on_boot(apply_start_on_boot);
+        eh_settings_window_reads_login_entry(true);
+    }
     R.open_settings = open_settings;
     eh_spawn(startup, NULL);
     SDL_SetAtomicInt(&R.ready, 1);

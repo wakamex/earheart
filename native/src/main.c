@@ -27,6 +27,7 @@
 #include "wav.h"
 #include "cleanup.h"
 #include "cores.h"
+#include "autostart.h"
 #include "download.h"
 #include "hf.h"
 #include "gs_rand.h"
@@ -415,6 +416,13 @@ int main(int argc, char **argv) {
     if (argc >= 2 && !SDL_strcmp(argv[1], "clean")) return cmd_clean(argc - 2, argv + 2);
     if (argc >= 2 && !SDL_strcmp(argv[1], "dictate")) return eh_cmd_dictate(argc - 2, argv + 2);
     if (argc >= 2 && !SDL_strcmp(argv[1], "models")) return cmd_models(argc - 2, argv + 2);
+    // earheart autostart [on|off]: the login entry, shown or switched, without the settings window.
+    if (argc >= 2 && !SDL_strcmp(argv[1], "autostart")) {
+        char error[256];
+        if (argc >= 3 && !eh_autostart_set(!SDL_strcmp(argv[2], "on"), error, sizeof error)) { fprintf(stderr, "earheart: %s\n", error); return 1; }
+        printf("%s\t%s\n", eh_autostart_enabled() ? "on" : "off", eh_autostart_where());
+        return 0;
+    }
     if (argc >= 2 && !SDL_strcmp(argv[1], "overlay-shot")) return cmd_overlay_shot(argc - 2, argv + 2);
     if (argc >= 2 && !SDL_strcmp(argv[1], "settings-smoke")) return eh_cmd_settings_smoke(argc - 2, argv + 2);
     if (argc >= 2 && !SDL_strcmp(argv[1], "wizard-smoke")) return eh_cmd_wizard_smoke(argc - 2, argv + 2);

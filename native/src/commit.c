@@ -3,6 +3,9 @@
 #include "settings.h"
 #include "text.h"
 
+static void (*apply_start_on_boot)(bool enabled);
+void eh_commit_on_start_on_boot(void (*apply)(bool enabled)) { apply_start_on_boot = apply; }
+
 const char *eh_displayed_output_mode(const gs_jval *settings) {
     const char *mode = gs_jval_string(gs_jval_path(settings, "output.mode"), "paste");
     if (!SDL_strcmp(mode, "paste") && !gs_jval_boolean(gs_jval_path(settings, "output.restoreClipboard"), true)) return "paste-copy";
@@ -116,6 +119,7 @@ bool eh_commit_settings(gs_jval *next, const eh_form_baseline *baseline, eh_hotk
         for (int n = 0; n < EH_HK_COUNT; n++)
             if (!back.r[n].ok && !back.r[n].empty) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "could not restore hotkeys after settings save failed: %s", back.r[n].error);
     }
+    if (ok && apply_start_on_boot) apply_start_on_boot(eh_setting_bool("startOnBoot"));
     if (results) *results = r;
     gs_jval_free(previous);
     return ok;

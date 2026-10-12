@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include "app.h"
+#include "commit.h"
 #include "correction_window.h"
 #include "deliver.h"
 #include "history.h"
@@ -136,6 +137,9 @@ static char *setting_text(const char *path) {
     return v;
 }
 
+static int boot_applied = -1;  // what the last save asked of the login entry
+static void note_boot(bool enabled) { boot_applied = enabled; }
+
 // The app with a folder of its own for its settings and a stand-in for the desktop's key grabs.
 static char data[1200];
 
@@ -150,6 +154,7 @@ static bool begin(const char *name) {
     // also what keeps an X error from ending the process.
     char why[256];
     gs_hotkeys_init(no_hotkey, why, sizeof why);
+    eh_commit_on_start_on_boot(note_boot);
     static const eh_hotkey_backend fake = { fake_add, fake_remove };
     eh_lock();
     eh_hotkeys_backend(&fake);
@@ -334,6 +339,8 @@ int eh_cmd_settings_smoke(int argc, char **argv) {
     CHECK(!has("cleanup-style") && has("cleanup-temperature") && has("cleanup-top-p") && has("cleanup-top-k") && has("cleanup-min-p") && has("cleanup-custom-from-preset"));
     CHECK(click("cleanup-style-mode-preset"));
 
+    // Start on login: the switch is part of the draft, and a save hands it to the login entry.
+    CHECK(has("start-on-boot") && click("start-on-boot") && !eh_settings_window_untouched());
     // A number outside its limits is saved as the nearest limit, the window says so and stays open.
     CHECK(click("max-seconds"));
     key(SDL_SCANCODE_A, SDLK_A, SDL_KMOD_LCTRL);
@@ -343,6 +350,9 @@ int eh_cmd_settings_smoke(int argc, char **argv) {
     settle("save", "Saving…");
     IS("save", "Saved — Max dictation length set to 3600 s (allowed 10–3600)");
     CHECK(T.open() && setting("audio.maxRecordingSeconds") == 3600);
+    eh_lock();
+    CHECK(eh_setting_bool("startOnBoot") && boot_applied == 1);
+    eh_unlock();
     IS("max-seconds", "3600");
 
     // A hotkey another app holds: everything else is saved, the hotkey keeps its saved value, the
