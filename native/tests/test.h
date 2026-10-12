@@ -11,3 +11,4 @@ void test_settings(const char *vectors); // tests/settings.c
 void test_overlay(void);                 // tests/overlay.c
 void test_hotkeys(const char *vectors);  // tests/hotkeys.c
 void test_vocabulary(const char *vectors);  // tests/commit.c
+void test_hf(const char *vectors);          // tests/hf.c

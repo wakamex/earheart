@@ -220,6 +220,10 @@ int main(int argc, char **argv) {
         test_hotkeys(path);
         printf("%-12s %s\n", "hotkeys", failures == before ? "ok" : "FAILED");
         before = failures;
+        SDL_snprintf(path, sizeof path, "%s/vectors/hf.json", argv[1]);
+        test_hf(path);
+        printf("%-12s %s\n", "hf", failures == before ? "ok" : "FAILED");
+        before = failures;
         SDL_snprintf(path, sizeof path, "%s/vectors/vocabulary.json", argv[1]);
         test_vocabulary(path);
         printf("%-12s %s\n", "vocabulary", failures == before ? "ok" : "FAILED");
