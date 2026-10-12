@@ -296,6 +296,7 @@ bool eh_overlay_shot(const eh_overlay_model *m, const char *png_path, float scal
 #define PROGRESS_HOLD_MS 400  // a finished bar stays this long, so its end is seen
 
 static struct {
+    bool enabled;           // the app has an overlay at all
     SDL_Window *window;
     SDL_Renderer *renderer;
     gs_glyphs *glyphs;
@@ -324,23 +325,44 @@ static struct {
     eh_overlay_layout layout;  // of the frame last drawn: where the keys are
 } O;
 
-bool eh_overlay_init(void) {
+// The window exists only while the overlay shows: with its renderer it is most of what the app
+// would otherwise hold in memory while it waits in the tray.
+static bool make_window(void) {
     O.height = EH_OVERLAY_HEIGHT;
     O.window = SDL_CreateWindow("Earheart", EH_OVERLAY_WIDTH, EH_OVERLAY_HEIGHT,
                                 SDL_WINDOW_HIDDEN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_TRANSPARENT | SDL_WINDOW_ALWAYS_ON_TOP | SDL_WINDOW_UTILITY |
                                     SDL_WINDOW_NOT_FOCUSABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     O.renderer = O.window ? SDL_CreateRenderer(O.window, NULL) : NULL;
-    if (!O.renderer) { SDL_Log("no overlay here (%s)", SDL_GetError()); return false; }
+    if (!O.renderer) {
+        SDL_Log("no overlay here (%s)", SDL_GetError());
+        if (O.window) SDL_DestroyWindow(O.window);
+        O.window = NULL;
+        return false;
+    }
     SDL_SetRenderVSync(O.renderer, 1);
     O.glyphs = gs_glyphs_new(O.renderer, 1024);
+    O.wanted = false;
+    O.opacity = 0;
+    O.hover = O.pressed = 0;
+    O.card_hover = O.dragging = false;
+    return true;
+}
+
+static void drop_window(void) {
+    if (O.glyphs) gs_glyphs_free(O.glyphs);
+    if (O.renderer) SDL_DestroyRenderer(O.renderer);
+    if (O.window) SDL_DestroyWindow(O.window);
+    O.glyphs = NULL, O.renderer = NULL, O.window = NULL;
+}
+
+bool eh_overlay_init(void) {
+    O.enabled = true;
     return true;
 }
 
 void eh_overlay_quit(void) {
-    if (O.glyphs) gs_glyphs_free(O.glyphs);
-    if (O.renderer) SDL_DestroyRenderer(O.renderer);
-    if (O.window) SDL_DestroyWindow(O.window);
-    O.window = NULL;
+    drop_window();
+    O.enabled = false;
 }
 
 // Bottom centre of the main display, or where the user dragged it to, if that is still on a display.
@@ -543,7 +565,14 @@ int eh_overlay_step(const eh_overlay_input *in, Uint64 now, eh_overlay_model *m)
 }
 
 int eh_overlay_frame(void) {
-    if (!O.window) return -1;
+    if (!O.enabled) return -1;
+    if (!O.window) {
+        eh_lock();
+        bool wanted = eh_app_view()->visible;
+        eh_unlock();
+        if (!wanted) return -1;
+        if (!make_window()) { O.enabled = false; return -1; }
+    }
     Uint64 now = SDL_GetTicks();
     eh_overlay_model m;
 
@@ -576,7 +605,7 @@ int eh_overlay_frame(void) {
     O.opacity = O.wanted ? SDL_max(O.opacity, t) : SDL_min(O.opacity, 1 - t);
     bool fading = O.wanted ? O.opacity < 1 : O.opacity > 0;
     if (!O.wanted && O.opacity <= 0) {
-        if (!(SDL_GetWindowFlags(O.window) & SDL_WINDOW_HIDDEN)) SDL_HideWindow(O.window);
+        drop_window();
         again = -1;
     } else {
         float scale = SDL_GetWindowDisplayScale(O.window);
