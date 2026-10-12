@@ -89,65 +89,33 @@ static void take_batch(recording *rec, const float *batch, int n) {
     }
 }
 
-typedef struct { recording *rec; SDL_AudioStream *stream; float *fake; int fake_count; double speed; } source;
+struct eh_mic {
+    SDL_AudioStream *stream;  // NULL when a file stands in
+    float *fake;
+    int fake_count, at;
+    double speed;
+    Uint64 began;
+    bool then_silence;
+};
 
-// Feeds the recording until told to stop, then once more with whatever was still on its way.
-static int source_main(void *user) {
-    source s = *(source *)user;
-    SDL_free(user);
-    float batch[BATCH];
-    int at = 0;
-    Uint64 began = SDL_GetTicksNS();
-    for (;;) {
-        bool stopping = SDL_GetAtomicInt(&s.rec->stop);
-        int n = 0;
-        if (s.stream) {
-            int got = SDL_GetAudioStreamData(s.stream, batch, sizeof batch);
-            n = got > 0 ? got / (int)sizeof(float) : 0;
-        } else {
-            // The file is played at its own pace, so the recording grows as a spoken one does.
-            Uint64 due = began + (Uint64)((double)(at + BATCH) / EH_SAMPLE_RATE / s.speed * 1e9);
-            if (at < s.fake_count && (stopping || SDL_GetTicksNS() >= due)) {
-                n = SDL_min(BATCH, s.fake_count - at);
-                SDL_memcpy(batch, s.fake + at, sizeof(float) * (size_t)n);
-                at += n;
-                if (stopping) n = 0;  // a file has nothing on its way
-            }
-        }
-        if (n) {
-            eh_lock();
-            take_batch(s.rec, batch, n);
-            eh_unlock();
-        } else if (stopping) {
-            break;
-        } else {
-            SDL_Delay(4);
-        }
-    }
-    if (s.stream) SDL_DestroyAudioStream(s.stream);
-    SDL_free(s.fake);
-    return 0;
-}
-
-// Opens the microphone, or the file standing in for it. False with `error` set.
-static bool open_source(recording *rec, const char *device_id, char *error, size_t error_size) {
-    source *s = SDL_calloc(1, sizeof *s);
-    s->rec = rec;
-    s->speed = R.fake_speed;
+eh_mic *eh_mic_open(const char *device_id, bool then_silence, char *notice, size_t notice_size, char *error, size_t error_size) {
+    eh_mic *m = SDL_calloc(1, sizeof *m);
+    m->speed = R.fake_speed;
+    m->then_silence = then_silence;
     if (R.fake_path) {
         size_t len;
         uint8_t *wav = SDL_LoadFile(R.fake_path, &len);
         const char *why = wav ? NULL : SDL_GetError();
         int rate = 0;
-        s->fake = wav ? eh_wav_floats(wav, len, &s->fake_count, &rate, &why) : NULL;
+        m->fake = wav ? eh_wav_floats(wav, len, &m->fake_count, &rate, &why) : NULL;
         SDL_free(wav);
-        if (s->fake && rate != EH_SAMPLE_RATE) { why = "the file is not 16 kHz"; SDL_free(s->fake); s->fake = NULL; }
-        if (!s->fake) { SDL_snprintf(error, error_size, "Microphone unavailable: %s", why); SDL_free(s); return false; }
+        if (m->fake && rate != EH_SAMPLE_RATE) { why = "the file is not 16 kHz"; SDL_free(m->fake); m->fake = NULL; }
+        if (!m->fake) { SDL_snprintf(error, error_size, "Microphone unavailable: %s", why); SDL_free(m); return NULL; }
     } else {
         if (!SDL_WasInit(SDL_INIT_AUDIO) && !SDL_InitSubSystem(SDL_INIT_AUDIO)) {
             SDL_snprintf(error, error_size, "Microphone unavailable: %s", SDL_GetError());
-            SDL_free(s);
-            return false;
+            SDL_free(m);
+            return NULL;
         }
         // The saved microphone by its name; one that is gone falls back to the system's default,
         // and the overlay says so.
@@ -161,17 +129,79 @@ static bool open_source(recording *rec, const char *device_id, char *error, size
                 if (name && !SDL_strcmp(name, device_id)) { device = all[i]; found = true; }
             }
             SDL_free(all);
-            if (!found) SDL_strlcpy(rec->notice, "Saved mic missing — using system default", sizeof rec->notice);
+            if (!found && notice) SDL_strlcpy(notice, "Saved mic missing — using system default", notice_size);
         }
         const SDL_AudioSpec spec = { SDL_AUDIO_F32, 1, EH_SAMPLE_RATE };
-        s->stream = SDL_OpenAudioDeviceStream(device, &spec, NULL, NULL);
-        if (!s->stream || !SDL_ResumeAudioStreamDevice(s->stream)) {
+        m->stream = SDL_OpenAudioDeviceStream(device, &spec, NULL, NULL);
+        if (!m->stream || !SDL_ResumeAudioStreamDevice(m->stream)) {
             SDL_snprintf(error, error_size, "Microphone unavailable: %s", SDL_GetError());
-            if (s->stream) SDL_DestroyAudioStream(s->stream);
-            SDL_free(s);
-            return false;
+            if (m->stream) SDL_DestroyAudioStream(m->stream);
+            SDL_free(m);
+            return NULL;
         }
     }
+    m->began = SDL_GetTicksNS();
+    return m;
+}
+
+int eh_mic_read(eh_mic *m, float *batch, int max, bool stopping) {
+    if (m->stream) {
+        int got = SDL_GetAudioStreamData(m->stream, batch, (int)sizeof(float) * max);
+        return got > 0 ? got / (int)sizeof(float) : 0;
+    }
+    // The file is played at its own pace, so the recording grows as a spoken one does.
+    Uint64 due = m->began + (Uint64)((double)(m->at + max) / EH_SAMPLE_RATE / m->speed * 1e9);
+    if (m->at < m->fake_count) {
+        if (!stopping && SDL_GetTicksNS() < due) return 0;
+        int n = SDL_min(max, m->fake_count - m->at);
+        SDL_memcpy(batch, m->fake + m->at, sizeof(float) * (size_t)n);
+        m->at += n;
+        return stopping ? 0 : n;  // a file has nothing on its way
+    }
+    if (!m->then_silence || stopping || SDL_GetTicksNS() < due) return 0;
+    SDL_memset(batch, 0, sizeof(float) * (size_t)max);
+    m->at += max;
+    return max;
+}
+
+void eh_mic_close(eh_mic *m) {
+    if (!m) return;
+    if (m->stream) SDL_DestroyAudioStream(m->stream);
+    SDL_free(m->fake);
+    SDL_free(m);
+}
+
+typedef struct { recording *rec; eh_mic *mic; } source;
+
+// Feeds the recording until told to stop, then once more with whatever was still on its way.
+static int source_main(void *user) {
+    source s = *(source *)user;
+    SDL_free(user);
+    float batch[BATCH];
+    for (;;) {
+        bool stopping = SDL_GetAtomicInt(&s.rec->stop);
+        int n = eh_mic_read(s.mic, batch, BATCH, stopping);
+        if (n) {
+            eh_lock();
+            take_batch(s.rec, batch, n);
+            eh_unlock();
+        } else if (stopping) {
+            break;
+        } else {
+            SDL_Delay(4);
+        }
+    }
+    eh_mic_close(s.mic);
+    return 0;
+}
+
+// Opens the microphone, or the file standing in for it. False with `error` set.
+static bool open_source(recording *rec, const char *device_id, char *error, size_t error_size) {
+    eh_mic *mic = eh_mic_open(device_id, false, rec->notice, sizeof rec->notice, error, error_size);
+    if (!mic) return false;
+    source *s = SDL_calloc(1, sizeof *s);
+    s->rec = rec;
+    s->mic = mic;
     rec->source = SDL_CreateThread(source_main, "microphone", s);
     return true;
 }

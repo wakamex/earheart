@@ -33,3 +33,12 @@ bool eh_recorder_paused(void);
 double eh_recorder_seconds(void);            // captured so far, pauses left out
 int eh_recorder_cap_seconds(void);           // where the recording stops by itself
 int eh_recorder_levels(float *out, int max); // the loudness of the latest batches, oldest first
+
+// The microphone by itself, for whoever reads it on a thread of its own: the saved device by its
+// name (the system's default when it is gone, with `notice` saying so), or the file standing in.
+// With `then_silence` a file is followed by silence at the same pace, as a room goes quiet.
+typedef struct eh_mic eh_mic;
+eh_mic *eh_mic_open(const char *device_id, bool then_silence, char *notice, size_t notice_size, char *error, size_t error_size);
+// Up to `max` samples that have arrived, 0 when none have. `stopping` asks for what is still on its way.
+int eh_mic_read(eh_mic *m, float *batch, int max, bool stopping);
+void eh_mic_close(eh_mic *m);
