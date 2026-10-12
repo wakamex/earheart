@@ -204,15 +204,16 @@ static float eh_overlay_draw_with(SDL_Renderer *r, gs_glyphs *glyphs, const eh_o
     draw_key(&p, m, 1, right - 16, mid);
     layout.keys[0] = (SDL_FRect){ right - 32, mid - 16, 32, 32 };
     right -= 32 + 10;
-    // The timer keeps one width whatever its digits, so the waveform's edge does not shift with them.
-    char widest[sizeof m->timer];
-    SDL_strlcpy(widest, m->timer, sizeof widest);
-    for (char *c = widest; *c; c++) if (*c >= '0' && *c <= '9') *c = '0';
-    float timer_w = gs_fontset_width(p.fonts, 12 * s, widest) / s;
-    text_line(&p, m->timer, right - timer_w, mid - 6, 12, 0, ink(&p, m->cap_warning ? ACCENT : recording ? TEXT : TEXT_DIM, 1));
+    // The timer in the monospace face, whose digits are one width: the waveform's edge does not
+    // shift as they change. The status word in semibold.
+    pen mono = p, strong = p;
+    mono.fonts = eh_fonts_mono();
+    strong.fonts = eh_fonts_semibold();
+    float timer_w = gs_fontset_width(mono.fonts, 12 * s, m->timer) / s;
+    text_line(&mono, m->timer, right - timer_w, mid - 6, 12, 0, ink(&p, m->cap_warning ? ACCENT : recording ? TEXT : TEXT_DIM, 1));
     right -= timer_w + 10;
     draw_dot(&p, m->status, left + 4, mid, m->seconds);
-    float title_w = text_line(&p, m->title, left + 8 + 7, mid - 6.25f, 12.5f, 150 - 15, ink(&p, !SDL_strcmp(m->status, "done") ? TEXT : TEXT_MID, 1));
+    float title_w = text_line(&strong, m->title, left + 8 + 7, mid - 6.25f, 12.5f, 150 - 15, ink(&p, !SDL_strcmp(m->status, "done") ? TEXT : TEXT_MID, 1));
     left += 8 + 7 + title_w + 10;
 
     // The waveform: the voice drawn as it lands, newest at the right edge. Outside recording it
