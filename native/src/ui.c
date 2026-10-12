@@ -18,7 +18,6 @@ struct eh_ui {
     float mx, my;  // the pointer, in points
     bool down;     // its left button
     bool escape;   // Escape was pressed since the last frame
-    bool input;    // something was pressed, released, typed or scrolled since the last frame
     bool paging;   // between eh_scroll_begin and eh_scroll_end
     bool was_capturing;  // a hotkey field was waiting for keys when the frame began: Escape was its
     // The controls the frame drew, for tests to find them by name.
@@ -128,7 +127,6 @@ static bool mine(eh_ui *ui, const SDL_Event *e) {
 
 bool eh_ui_event(eh_ui *ui, const SDL_Event *e) {
     if (!mine(ui, e)) return false;
-    if (e->type != SDL_EVENT_MOUSE_MOTION) ui->input = true;
     gs_ui_event(ui->gs, e);
     return true;
 }
@@ -194,9 +192,6 @@ int eh_ui_end(eh_ui *ui) {
     if (gs_ui_key(ui->gs, SDLK_ESCAPE, 0) && !ui->asking && !ui->was_capturing) ui->close_asked = true;
     ui->escape = false;
     ui->paging = false;
-    // What an input changed shows on the frame after the one that took it.
-    if (ui->input) gs_ui_wake(ui->gs, 0);
-    ui->input = false;
     gs_ui_end(ui->gs);
     SDL_RenderPresent(ui->r);
     return gs_ui_wait_ms(ui->gs);
