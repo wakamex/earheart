@@ -63,15 +63,15 @@ The native build is 1% to 7% faster everywhere except the Windows CPU, where it 
 
 ### Transcription accuracy
 
-The native build transcribes noisy audio worse than the Electron build. Chromium cleans up the microphone before the Electron build sees it (noise suppression, echo cancellation, automatic gain), and the native build records what the microphone delivers. On 40 clips of the [FLEURS](https://huggingface.co/datasets/google/fleurs) English test set played into the Electron build's own overlay and transcribed both ways with the same engine, the word error rate (WER, lower is better) was:
+The two builds transcribe equally well, in noise as well as without it. The question arises because Chromium cleans up the microphone before the Electron build sees it (noise suppression, echo cancellation, automatic gain), and the native build records what the microphone delivers. 324 clips of the [FLEURS](https://huggingface.co/datasets/google/fleurs) English test set were played into the Electron build's own overlay as the microphone, and both the audio it captured and the audio as played were transcribed with the same engine. The word error rate (WER, lower is better) was:
 
 | Condition | Electron build | Native build | Native minus Electron in points, with 95% interval |
 |---|---|---|---|
-| Clip as recorded | 5.29% | 6.07% | 0.79 (-0.12 to 1.82) |
-| 20 dB quieter | 5.62% | 6.52% | 0.90 (-0.23 to 2.07) |
-| White noise 15 dB below the speech | 7.20% | 9.79% | 2.59 (0.34 to 5.32) |
+| Clip as recorded | 6.36% | 6.27% | -0.08 (-0.68 to 0.41) |
+| 20 dB quieter | 6.30% | 6.50% | 0.20 (-0.17 to 0.57) |
+| White noise 15 dB below the speech | 8.22% | 8.35% | 0.12 (-0.46 to 0.72) |
 
-With noise in the room the native build is 2.59 points worse. On clean and quiet audio the difference leans the same way and its interval includes zero. A noise suppressor has not been tried yet.
+Every difference is a fifth of a point or less and every interval includes zero. An earlier run on 40 clips put the native build 2.59 points behind in noise; with eight times the clips that difference is 0.12.
 
 How each figure was taken, with the scripts, is in [decisions.md](decisions.md) under M0, M1, M2 and M5.
 

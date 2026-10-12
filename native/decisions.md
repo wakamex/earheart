@@ -344,17 +344,22 @@ Booting the whole app and exiting (`--smoke-test`), both builds inside one X dis
 | Native | 0.07 to 0.09 s | 8 to 9 MB |
 
 Idle in the tray with no models loaded the native build is one process of 6 MiB, against the Electron build's 267 MiB. 
-#### Chromium's microphone processing is worth 2.6 points of word error rate in a noisy room
+#### Chromium's microphone processing does not change the word error rate
 
-The Electron build records through Chromium with echo cancellation, noise suppression and automatic gain on (`renderer/microphone.js`); the native build records what SDL hands it. `tools/eval-mic-processing.mjs` plays each of 40 FLEURS clips into the Electron build's real overlay as the microphone, keeps what the overlay captured, and transcribes both that and the clip as played with the same engine (Parakeet TDT 0.6B v3 int8). The table gives the word error rate (WER) of each against the reference text, lower is better, under three conditions: the clip as it is, 20 dB quieter (a low-gain microphone), and with white noise 15 dB below the speech. The last column is native minus Electron in percentage points, with the middle 95% of 10,000 resamplings of the clips.
+The Electron build records through Chromium with echo cancellation, noise suppression and automatic gain on (`renderer/microphone.js`); the native build records what SDL hands it. Each clip is played into the Electron build's real overlay as the microphone (`scripts/e2e-latency.js`, which saves what the overlay captured), and both that and the clip as played are transcribed with the same engine (Parakeet TDT 0.6B v3 int8). The table gives the word error rate (WER) of each against the reference text, lower is better, under three conditions: the clip as it is, 20 dB quieter (a low-gain microphone), and with white noise 15 dB below the speech. The last column is native minus Electron in percentage points, with the middle 95% of 10,000 resamplings of the clips. The clips are every second row of the FLEURS English test set, 324 of them.
 
 | Condition | Clips | WER of the audio as played (what the native build records) | WER of the audio as Chromium captured it (what the Electron build records) | Difference in points, with 95% interval |
 |---|---|---|---|---|
-| As recorded | 40 | 6.07% | 5.29% | 0.79 (-0.12 to 1.82) |
-| 20 dB quieter | 40 | 6.52% | 5.62% | 0.90 (-0.23 to 2.07) |
-| Noise 15 dB below speech | 40 | 9.79% | 7.20% | 2.59 (0.34 to 5.32) |
+| As recorded | 324 | 6.27% | 6.36% | -0.08 (-0.68 to 0.41) |
+| 20 dB quieter | 324 | 6.50% | 6.30% | 0.20 (-0.17 to 0.57) |
+| Noise 15 dB below speech | 324 | 8.35% | 8.22% | 0.12 (-0.46 to 0.72) |
 
-The native build transcribes noisy audio 2.59 points worse. On clean and quiet audio the difference leans the same way and its interval includes zero. Decision: the native build records unprocessed audio through M5, and a noise suppressor is tried on these same clips before delivery; the candidates are the systems' own voice processing and [RNNoise](https://github.com/xiph/rnnoise). This is a gap against the Electron build until that closes it.
+No condition shows a difference: each is 0.2 points or less with an interval that includes zero. Decision: the native build records unprocessed audio and adds no noise suppressor. gesso's `gs_voice`, a port of WebRTC's high-pass filter, noise suppressor and gain controller, scored 9.28% in noise on the same clips against 8.35% unprocessed, so it stays off.
+
+Two things about the measurement:
+
+- The first run used 40 clips (`tools/eval-mic-processing.mjs` with its default) and gave 6.07% against 5.29% as recorded, 6.52% against 5.62% quieter, and 9.79% against 7.20% in noise, a difference of 2.59 points (0.34 to 5.32). The 324 clips do not bear it out, and the 40-clip figures are superseded.
+- A capture that starts late loses the clip's first words. Taken one at a time a capture is 0.18 s shorter than its clip; with several Electron instances running at once the median was 0.32 s and 89 of the 972 captures were more than 0.5 s short, some by nearly 2 s. Those 89 were captured again one at a time and all came within 0.22 s. Before that the WERs of the captured audio were 6.60%, 6.44% and 8.48%. The script now takes a capture again when it is more than 0.5 s short.
 
 #### The overlay does not take the keyboard
 
@@ -459,7 +464,7 @@ Decisions:
 
 Found while testing, and fixed: the events that wake the main thread carried no type, so the tray menu was never rebuilt after start-up; Xlib's default handler ended the process on an error for a window closed a moment before; a quit signal was not noticed on macOS until some other event arrived, 20 seconds with the settings window open.
 
-Not in M5, by the plan: start on login, the keychain, notifications, the updater and its settings section. Open from M2: a noise suppressor to close the 2.6 point gap in noisy rooms.
+Not in M5, by the plan: start on login, the keychain, notifications, the updater and its settings section.
 
 ### The three pieces before delivery: notifications, key store, start on login (2026-10-12)
 

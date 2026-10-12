@@ -25,7 +25,7 @@
 
 ## About this fork
 
-This fork adds [`native/`](native/), a port of Earheart from Electron to a single C program, kept at the behaviour of v0.39.0. Its goal is to offer the maintainer the same app at a fraction of the start-up time and memory. One known gap against the Electron build described in the rest of this page: the native build has no microphone noise suppression and transcribes noisy audio 2.59 points of word error rate worse (95% interval 0.34 to 5.32, 40 clips). The numbers, the other differences and how to build it are in [native/README.md](native/README.md).
+This fork adds [`native/`](native/), a port of Earheart from Electron to a single C program, kept at the behaviour of v0.39.0. Its goal is to offer the maintainer the same app at a fraction of the start-up time and memory. The measurements against the Electron build, the differences between the two and how to build it are in [native/README.md](native/README.md).
 
 ---
 

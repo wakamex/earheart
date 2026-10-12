@@ -70,16 +70,18 @@ for (const [condition, change] of Object.entries(CONDITIONS)) {
     const captured = path.join(dir, `captured-${clip.file}`);
     const { samples } = wavToFloat32(fs.readFileSync(path.join(args.corpus, "pcm16", clip.file)));
     fs.writeFileSync(played, encodeWav(toPcm16(Float32Array.from(change(Array.from(samples), i + 1))), 16000));
-    if (!fs.existsSync(captured)) {
+    // A capture that starts late loses the clip's first words. One taken alone is about 0.2 s shorter
+    // than the clip; on a busy machine some lose a second or more, so those are taken again.
+    const length = wavDurationSec(fs.readFileSync(played));
+    for (let attempt = 0; attempt < 3 && !(fs.existsSync(captured) && wavDurationSec(fs.readFileSync(captured)) >= length - 0.5); attempt++) {
       // Chromium plays the file as the microphone and loops it; the take stops when the clip ends.
-      const talk = (wavDurationSec(fs.readFileSync(played)) - 0.1).toFixed(2);
-      const run = spawnSync("xvfb-run", ["-a", "npx", "electron", "scripts/e2e-latency.js", "--no-sandbox", `--wav=${played}`, `--models=${args.models}`, "--config=stt-only", `--talk=${talk}`, "--runs=1", "--debug-chunks"], { cwd: repo, encoding: "utf8", maxBuffer: 1 << 26 });
+      const run = spawnSync("xvfb-run", ["-a", "npx", "electron", "scripts/e2e-latency.js", "--no-sandbox", `--wav=${played}`, `--models=${args.models}`, "--config=stt-only", `--talk=${(length - 0.1).toFixed(2)}`, "--runs=1", "--debug-chunks"], { cwd: repo, encoding: "utf8", maxBuffer: 1 << 26 });
       const saved = /captured wav saved: (.*)/.exec(run.stdout || "");
-      if (!saved) {
-        console.error(`${condition} ${clip.file}: no capture`);
-        continue;
-      }
-      fs.copyFileSync(saved[1].trim(), captured);
+      if (saved) fs.copyFileSync(saved[1].trim(), captured);
+    }
+    if (!fs.existsSync(captured)) {
+      console.error(`${condition} ${clip.file}: no capture`);
+      continue;
     }
     pairs.push({ clip, played, captured });
     console.error(`${condition}: ${i + 1}/${clips.length}`);
